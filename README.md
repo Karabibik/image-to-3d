@@ -54,7 +54,7 @@ browser ─► RunPod proxy :7860 ─► Gradio UI + orchestrator (/opt/venvs/ui
 4. **RunPod secret:** in the RunPod console, open Secrets and create `ui_password`. The UI asks for user `admin` with this password.
 5. **RunPod template:** [runpod/template.json](runpod/template.json) is the request body for RunPod's REST v2 `POST /templates`, and what Claude sends through the RunPod MCP.
    To create it in the console instead, open Templates → New Template and enter:
-   - Image: `docker.io/<you>/image-to-3d:v0.1.0`
+   - Image: `docker.io/<you>/image-to-3d:v0.1.1`
    - Container disk: 60 GB. Volume disk: 100 GB at `/workspace`.
    - HTTP ports: `7860` (UI) and `8888` (Jupyter). TCP port: `22`.
    - Env: `UI_PASSWORD` = `{{ RUNPOD_SECRET_ui_password }}`, plus optionally `PREFETCH_MODELS` = `hunyuan trellis` (or `all`).

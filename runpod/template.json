@@ -1,6 +1,6 @@
 {
   "name": "image-to-miniature",
-  "image": "docker.io/karabibik/image-to-3d:v0.1.0",
+  "image": "docker.io/karabibik/image-to-3d:v0.1.1",
   "category": "NVIDIA",
   "disk": 60,
   "mounts": {
