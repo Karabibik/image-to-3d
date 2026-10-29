@@ -29,7 +29,9 @@ done
 
 make_venv trellis python3.11
 vpip trellis -r "$ENVS/trellis.txt"
-vpip trellis "$WHEELS"/*.whl
+# --no-deps: o-voxel names cumesh/flex_gemm as git URLs that pip won't match to these
+# wheels; their runtime deps are listed in trellis.txt instead.
+vpip trellis --no-deps "$WHEELS"/*.whl
 vpip trellis "$UTILS3D_TRELLIS"
 check_import trellis "$MODELS/TRELLIS.2" "import o_voxel, cumesh, flex_gemm, nvdiffrast.torch, utils3d"
 check_import trellis "$MODELS/TRELLIS.2" "from trellis2.pipelines import Trellis2ImageTo3DPipeline" soft
@@ -37,7 +39,7 @@ check_import trellis "$MODELS/TRELLIS.2" "from trellis2.pipelines import Trellis
 make_venv pixal3d python3.11
 vpip pixal3d -r "$ENVS/trellis.txt" -r "$ENVS/pixal3d.txt"
 vpip pixal3d --no-deps "$MOGE"
-vpip pixal3d "$WHEELS"/*.whl
+vpip pixal3d --no-deps "$WHEELS"/*.whl
 vpip pixal3d "$NATTEN" -f https://whl.natten.org
 vpip pixal3d "$UTILS3D_PIXAL"
 check_import pixal3d "$MODELS/Pixal3D" "import o_voxel, natten, moge, utils3d"

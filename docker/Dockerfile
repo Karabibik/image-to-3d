@@ -61,7 +61,9 @@ RUN bash /opt/build/install_hi3d.sh
 
 # UI / orchestrator venv: no torch, no system site-packages.
 COPY app/requirements.txt /opt/build/envs/ui.txt
-RUN python3.11 -m venv /opt/venvs/ui && /opt/venvs/ui/bin/python -m pip install -r /opt/build/envs/ui.txt
+RUN python3.11 -m venv /opt/venvs/ui \
+    && /opt/venvs/ui/bin/python -m pip install --upgrade pip \
+    && /opt/venvs/ui/bin/python -m pip install -r /opt/build/envs/ui.txt
 
 COPY app /opt/app/app
 COPY workers /opt/app/workers
