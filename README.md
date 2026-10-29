@@ -43,13 +43,13 @@ browser ─► RunPod proxy :7860 ─► Gradio UI + orchestrator (/opt/venvs/ui
 3. **Build:** every push to `main` runs tests and builds `docker.io/<you>/image-to-3d:main`.
    For a release, push a tag (`git tag v0.1.0 && git push --tags`) to get `:v0.1.0`. The first build takes roughly 1-2 h; later builds reuse the layer cache.
 4. **RunPod secret:** in the RunPod console, open Secrets and create `ui_password`. The UI asks for user `admin` with this password.
-5. **RunPod template:** open Templates → New Template and copy the values from [runpod/template.json](runpod/template.json):
+5. **RunPod template:** [runpod/template.json](runpod/template.json) is the request body for RunPod's REST v2 `POST /templates`, and what Claude sends through the RunPod MCP.
+   To create it in the console instead, open Templates → New Template and enter:
    - Image: `docker.io/<you>/image-to-3d:v0.1.0`
    - Container disk: 60 GB. Volume disk: 100 GB at `/workspace`.
    - HTTP ports: `7860` (UI) and `8888` (Jupyter). TCP port: `22`.
    - Env: `UI_PASSWORD` = `{{ RUNPOD_SECRET_ui_password }}`, plus optionally `PREFETCH_MODELS` = `hunyuan trellis` (or `all`).
-
-   With the RunPod plugin connected in Claude Code (`/mcp` → runpod), Claude can create the template from that file instead.
+   - Allowed CUDA versions: 12.6 or newer (the TRELLIS.2/Pixal3D stack uses CUDA 12.6 wheels).
 
 ## Each session
 

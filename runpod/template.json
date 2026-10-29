@@ -1,17 +1,19 @@
 {
   "name": "image-to-miniature",
-  "imageName": "docker.io/karabibik/image-to-3d:v0.1.0",
+  "image": "docker.io/karabibik/image-to-3d:v0.1.0",
   "category": "NVIDIA",
-  "isServerless": false,
-  "isPublic": false,
-  "containerDiskInGb": 60,
-  "volumeInGb": 100,
-  "volumeMountPath": "/workspace",
+  "disk": 60,
+  "mounts": {
+    "persistent": { "size": 100, "path": "/workspace" }
+  },
   "ports": ["7860/http", "8888/http", "22/tcp"],
   "env": {
     "UI_USERNAME": "admin",
     "UI_PASSWORD": "{{ RUNPOD_SECRET_ui_password }}",
     "PREFETCH_MODELS": "hunyuan trellis"
   },
-  "readme": "Image to printable miniature: Hunyuan3D 2.1, UltraShape, TRELLIS.2, Pixal3D and Hi3D behind one web UI on port 7860, with STL/3MF print prep. Use a 48 GB GPU (A40, RTX A6000, L40S); Hi3D at 1536 needs 80 GB. Not built for Blackwell GPUs (RTX 5090, RTX PRO 6000, B200). Weights download to /workspace on first use."
+  "allowedCudaVersions": ["12.6", "12.7", "12.8", "12.9", "13.0", "13.1", "13.2", "13.3", "13.4"],
+  "startJupyter": true,
+  "startSsh": true,
+  "public": false
 }
