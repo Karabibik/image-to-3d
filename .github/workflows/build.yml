@@ -35,7 +35,7 @@ jobs:
           set +e
           python -m pytest -q -rfE tests 2>&1 | tee pytest.log
           status=${PIPESTATUS[0]}
-          [ "$status" -eq 0 ] || python .github/annotate_tail.py "pytest failed" pytest.log 40
+          [ "$status" -eq 0 ] || python .github/annotate_tail.py "pytest failed" pytest.log
           exit "$status"
 
   image:
@@ -92,7 +92,7 @@ jobs:
             --cache-from "type=registry,ref=$CACHE" --cache-to "type=registry,ref=$CACHE,mode=max" \
             "${args[@]}" 2>&1 | tee build.log
           status=${PIPESTATUS[0]}
-          [ "$status" -eq 0 ] || python3 .github/annotate_tail.py "docker build failed" build.log 80
+          [ "$status" -eq 0 ] || python3 .github/annotate_tail.py "docker build failed" build.log
           exit "$status"
       - name: Disk usage after build
         if: always()
