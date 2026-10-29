@@ -33,7 +33,12 @@ vpip trellis -r "$ENVS/trellis.txt"
 # wheels; their runtime deps are listed in trellis.txt instead.
 vpip trellis --no-deps "$WHEELS"/*.whl
 vpip trellis "$UTILS3D_TRELLIS"
-check_import trellis "$MODELS/TRELLIS.2" "import o_voxel, cumesh, flex_gemm, nvdiffrast.torch, utils3d"
+# Distribution names of the extension wheels (the part of each filename before the first "-").
+EXT_DISTS=$(for w in "$WHEELS"/*.whl; do basename "$w" | cut -d- -f1; done)
+# shellcheck disable=SC2086  # word-split the list on purpose
+check_dists trellis $EXT_DISTS utils3d
+# flex_gemm builds Triton autotuners at import, which needs a GPU: soft checks only.
+check_import trellis "$MODELS/TRELLIS.2" "import o_voxel, cumesh, flex_gemm, nvdiffrast.torch, utils3d" soft
 check_import trellis "$MODELS/TRELLIS.2" "from trellis2.pipelines import Trellis2ImageTo3DPipeline" soft
 
 make_venv pixal3d python3.11
@@ -42,7 +47,9 @@ vpip pixal3d --no-deps "$MOGE"
 vpip pixal3d --no-deps "$WHEELS"/*.whl
 vpip pixal3d "$NATTEN" -f https://whl.natten.org
 vpip pixal3d "$UTILS3D_PIXAL"
-check_import pixal3d "$MODELS/Pixal3D" "import o_voxel, natten, moge, utils3d"
+# shellcheck disable=SC2086
+check_dists pixal3d $EXT_DISTS natten moge utils3d
+check_import pixal3d "$MODELS/Pixal3D" "import o_voxel, natten, moge, utils3d" soft
 check_import pixal3d "$MODELS/Pixal3D" "import inference" soft
 
 rm -rf "$WHEELS"

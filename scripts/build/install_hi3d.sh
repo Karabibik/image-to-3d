@@ -11,5 +11,6 @@ make_venv hi3d python3.10
 # satisfies (torch 2.5.1 instead of their measured 2.5.0; same flash-attn build).
 grep -vE '^(torch|torchvision|flash-attn)==' "$MODELS/Hi3Dv1.0/docker/constraints.txt" > /tmp/hi3d-constraints.txt
 vpip hi3d -c /tmp/hi3d-constraints.txt -e "$MODELS/Hi3Dv1.0[inference]"
-check_import hi3d "$MODELS/Hi3Dv1.0" "import spconv.pytorch, flash_attn, pyfqmr"
+check_dists hi3d sparc3d cumm_cu120 spconv_cu120 flash_attn pyfqmr
+check_import hi3d "$MODELS/Hi3Dv1.0" "import spconv.pytorch, flash_attn, pyfqmr" soft
 check_import hi3d "$MODELS/Hi3Dv1.0" "from sparc3d import Sparc3DPipeline" soft

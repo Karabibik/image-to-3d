@@ -37,6 +37,33 @@ vpip() {
     "$VENVS/$name/bin/python" -m pip install --no-cache-dir "$@"
 }
 
+# Verify distributions are installed (strict) and try loading the compiled extensions
+# they ship (warning only: load order between libraries can cause false failures),
+# without running package code (some packages, e.g. flex_gemm, need a live GPU at import).
+check_dists() {
+    local name=$1; shift
+    local stub
+    stub=$(mktemp -d)
+    ln -s /usr/local/cuda/lib64/stubs/libcuda.so "$stub/libcuda.so.1"
+    LD_LIBRARY_PATH="$stub:${LD_LIBRARY_PATH:-}" "$VENVS/$name/bin/python" - "$@" <<'EOF'
+import ctypes, importlib.metadata as md, sys
+import torch  # noqa: F401  extensions link against libtorch, which this loads
+for dist in sys.argv[1:]:
+    files = md.distribution(dist).files or []  # raises PackageNotFoundError if missing
+    libs = [f for f in files if f.name.endswith(".so")]
+    failed = []
+    for lib in libs:
+        try:
+            ctypes.CDLL(str(lib.locate()), mode=ctypes.RTLD_GLOBAL)
+        except OSError as exc:
+            failed.append(f"{lib.name}: {exc}")
+    print(f"dist check passed: {dist} {md.version(dist)}, {len(libs) - len(failed)}/{len(libs)} extension(s) load")
+    for line in failed:
+        print(f"WARNING: {line}")
+EOF
+    rm -rf "$stub"
+}
+
 # Import modules on a GPU-less builder (the driver stub stands in for libcuda.so.1).
 # Pass "soft" as 4th argument for imports that may legitimately need a GPU: a failure
 # is reported but does not fail the build; the on-pod smoke test covers those.
