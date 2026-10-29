@@ -35,8 +35,8 @@ RUN python3.10 --version && python3.11 --version && nvcc --version | tail -1 \
     && test -x /start.sh && grep -q post_start /start.sh
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        libglib2.0-0 libgl1 libegl1 libgles2 libegl1-mesa-dev libgl1-mesa-dev libgles2-mesa-dev \
-        libxrender1 libxi6 ninja-build \
+        libglib2.0-0 libgl1 libopengl0 libglu1-mesa libegl1 libgles2 \
+        libegl1-mesa-dev libgl1-mesa-dev libgles2-mesa-dev libxrender1 libxi6 ninja-build \
     && rm -rf /var/lib/apt/lists/*
 
 COPY scripts/build/lib.sh scripts/build/install_torch.sh /opt/build/
