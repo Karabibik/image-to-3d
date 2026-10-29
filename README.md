@@ -4,15 +4,24 @@ Upload character art, pick an image-to-3D model, and download a print-ready STL/
 watertight, standing on Z, scaled to a height in millimetres and reduced to a triangle budget.
 Everything runs on a rented RunPod GPU behind one web UI.
 
-| Model | Role | VRAM (approx.) | License |
+| Model | Role | Peak VRAM, measured on an A40 | License |
 |---|---|---|---|
-| **Hunyuan3D 2.1** | generator, shape only | ~10 GB | Tencent Hunyuan Community (excludes EU, UK, South Korea) |
-| **TRELLIS.2** | generator, 512 / 1024 / 1536 | 24 GB+ | MIT |
-| **Pixal3D** | generator, pixel-aligned (follows the art closely) | ~18 GB, ~10-12 GB low-VRAM | MIT |
-| **UltraShape 1.0** | refiner, best after Hunyuan3D | not stated (has a low-VRAM mode) | Apache-2.0 |
-| **Hi3D v1.0** *(experimental)* | refiner, up to 1536 | 1536 only tested on 96 GB | Hi3D Open License |
+| **Hunyuan3D 2.1** | generator, shape only | 11.5 GB | Tencent Hunyuan Community (excludes EU, UK, South Korea) |
+| **TRELLIS.2** | generator, 512 / 1024 / 1536 | 9.9 GB at 1024 | MIT |
+| **Pixal3D** | generator, pixel-aligned (follows the art closely) | 35.2 GB at 1536 (use low-VRAM mode below 48 GB) | MIT |
+| **UltraShape 1.0** | refiner, best after Hunyuan3D | 15.0 GB | Apache-2.0 |
+| **Hi3D v1.0** *(experimental)* | refiner, up to 1536 | 1536 only tested upstream on 96 GB | Hi3D Open License |
 
-VRAM figures are upstream claims until the on-pod smoke test measures them (see below).
+Timings from the first smoke test (A40, every model's first run, so they include loading
+and, for TRELLIS.2/Pixal3D, one-off Triton kernel tuning): Hunyuan3D 44 s,
++ UltraShape 611 s at 50 steps (use 12 steps for a quick pass), TRELLIS.2 1024 530 s,
+Pixal3D 1536 566 s. Later runs on the same pod are much faster.
+
+Meshes that are still open or non-manifold after repair are rebuilt by print prep with a
+signed 0.05 mm voxel remesh (on by default; a few minutes of CPU time). The report warns when a
+result looks like a hollow shell (volume under 3% of its bounding box; solid minis are ~10%).
+TRELLIS.2/Pixal3D are exported without their upstream narrow-band remesh, which produced
+exactly such hollow double-skinned shells in v0.1.0.
 
 ## How it fits together
 
@@ -109,6 +118,9 @@ To add a model, give it a worker under `workers/`, an install script, and entrie
 - **UI not reachable:** read `/workspace/logs/ui.log`. The UI restarts itself if it crashes.
 - **A model fails:** read `/workspace/logs/<worker>.log` (also visible in the UI's Worker log panel).
 - **Out of GPU memory:** lower the resolution, enable the model's low-VRAM option, or pick a bigger GPU.
+- **"may be a hollow shell" warning:** do not print that STL as-is; try another seed or generator and report it.
+- **A model comes out facing backwards or lying down:** use the extra rotations under Print settings → More,
+  and if it is systematic for a generator, set its `rotate_z` in `app/models.yaml` (Pixal3D already has 180).
 - **Gated Hugging Face models:** TRELLIS.2 and Pixal3D reference `facebook/dinov3-…` and `briaai/RMBG-2.0`.
   The workers swap these for ungated copies (`camenduru/dinov3-…`, `ZhengPeng7/BiRefNet`).
   Set `DINOV3_REPO`, `BIREFNET_REPO` and `HF_TOKEN` to use the originals.

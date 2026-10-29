@@ -13,8 +13,21 @@ sys.path.insert(0, ROOT)
 os.chdir(ROOT)
 
 import inference as pixal  # noqa: E402  (upstream inference.py; sets its own env defaults)
+import o_voxel  # noqa: E402
 
 from worker_common import cuda_memory_info, log, serve  # noqa: E402
+
+_upstream_to_glb = o_voxel.postprocess.to_glb
+
+
+def _to_glb_single_layer(*args, **kwargs):
+    # inference.py exports with remesh=True, whose narrow-band rebuild wraps every surface
+    # in an inner and outer skin (a hollow shell); keep the generated single-layer surface.
+    kwargs["remesh"] = False
+    return _upstream_to_glb(*args, **kwargs)
+
+
+o_voxel.postprocess.to_glb = _to_glb_single_layer
 from worker_hf import patched_pipeline_dir  # noqa: E402
 
 MODEL_ID = "TencentARC/Pixal3D"

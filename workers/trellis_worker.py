@@ -68,9 +68,10 @@ def generate(job: dict) -> dict:
         aabb=[[-0.5, -0.5, -0.5], [0.5, 0.5, 0.5]],
         decimation_target=int(params.get("decimation_target", 1000000)),
         texture_size=int(params.get("texture_size", 1024)),
-        remesh=True,
-        remesh_band=1,
-        remesh_project=0,
+        # The upstream app's narrow-band remesh (remesh=True, project 0) wraps every surface
+        # in an inner and outer skin: a hollow, non-manifold shell that prints as a thin wall.
+        # Without it to_glb only simplifies and cleans the generated single-layer surface.
+        remesh=False,
         use_tqdm=True,
     )
     glb.export(job["out"], extension_webp=True)

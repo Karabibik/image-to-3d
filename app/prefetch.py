@@ -5,6 +5,7 @@ Usage: python -m app.prefetch hunyuan trellis   (or "all")
 
 from __future__ import annotations
 
+import os
 import sys
 
 from huggingface_hub import snapshot_download
@@ -22,8 +23,10 @@ def prefetch(names: list[str]) -> None:
             continue
         for item in workers[name].get("prefetch", []):
             print(f"[prefetch] {name}: {item['repo']}", flush=True)
+            # local_dir / cache_dir match where that model's own loader looks (env vars expanded).
+            where = {k: os.path.expandvars(item[k]) for k in ("local_dir", "cache_dir") if k in item}
             try:
-                snapshot_download(item["repo"], allow_patterns=item.get("allow"), ignore_patterns=item.get("ignore"))
+                snapshot_download(item["repo"], allow_patterns=item.get("allow"), ignore_patterns=item.get("ignore"), **where)
             except Exception as exc:  # keep going; the worker retries on first use
                 print(f"[prefetch] {item['repo']} failed: {exc}", flush=True)
     print("[prefetch] done", flush=True)

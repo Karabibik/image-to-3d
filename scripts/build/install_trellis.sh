@@ -16,7 +16,9 @@ UTILS3D_TRELLIS="git+https://github.com/EasternJournalist/utils3d.git@9a4eb15e40
 UTILS3D_PIXAL="https://github.com/LDYang694/Storages/releases/download/20260430/utils3d-0.0.2-py3-none-any.whl"
 # Last MoGe commit before MoGe 3 (which drags in its own FlexGEMM build); has MoGe-2.
 MOGE="git+https://github.com/microsoft/MoGe.git@07444410f1e33f402353b99d6ccd26bd31e469e8"
-NATTEN="natten==0.21.0+torch270cu126"
+# The torch270cu126 build links the pre-C++11 string ABI and fails to load against the
+# CXX11-ABI torch 2.7.0+cu126 wheel; the cu128 build matches it (checked on an A40).
+NATTEN="natten==0.21.0+torch270cu128"
 
 WHEELS=/opt/wheels/trellis
 clone_pinned "$TRELLIS_REPO" "$TRELLIS_SHA" "$MODELS/TRELLIS.2"

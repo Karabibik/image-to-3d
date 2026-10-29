@@ -33,12 +33,19 @@ class PrintSettings:
     target_height_mm: float | None = 32.0
     # Cut this many millimetres off the bottom so the base sits flat; 0 disables.
     flatten_base_mm: float = 0.0
-    # Voxel remesh (in output units) when repair leaves the mesh open. Smooths detail finer than the cell.
-    remesh_if_open: bool = False
+    # Signed voxel remesh (cell in output units) when the mesh is still not watertight after
+    # repair, e.g. TRELLIS.2/Pixal3D output. Smooths detail finer than the cell.
+    remesh_if_open: bool = True
     remesh_cell_mm: float = 0.05
-    # Face budget after decimation; None or 0 keeps every face.
+    # Face budget after decimation; None or 0 keeps every face (capped after a remesh).
     target_faces: int | None = 200_000
     formats: tuple[str, ...] = ("stl", "3mf")
+
+
+# A remesh at 0.05 mm yields ~10M faces for a 32 mm figure; "keep all" stops here instead.
+REMESH_FACE_CAP = 1_000_000
+# Measured: solid minis fill ~10% of their bounding box, double-walled shells 0.5-1.3%.
+HOLLOW_FILL_RATIO = 0.03
 
 
 @dataclass
@@ -53,6 +60,7 @@ class PrintReport:
     holes_closed: bool = False
     remeshed: bool = False
     flattened: bool = False
+    nonmanifold_edges: int = 0
     warnings: list[str] = field(default_factory=list)
     files: dict[str, str] = field(default_factory=dict)
 
@@ -121,7 +129,19 @@ def _from_meshset(ms: pymeshlab.MeshSet) -> trimesh.Trimesh:
     return trimesh.Trimesh(vertices=m.vertex_matrix(), faces=m.face_matrix(), process=False)
 
 
+def nonmanifold_edge_count(mesh: trimesh.Trimesh) -> int:
+    """Edges shared by more than two faces."""
+    _, counts = np.unique(mesh.edges_sorted, axis=0, return_counts=True)
+    return int((counts > 2).sum())
+
+
 def repair(mesh: trimesh.Trimesh, max_hole_edges: int, report: PrintReport) -> trimesh.Trimesh:
+    nonmanifold = nonmanifold_edge_count(mesh)
+    if nonmanifold:
+        # Meshlab's non-manifold repair deletes faces and scrambles the (consistent) winding
+        # of such meshes (TRELLIS.2/Pixal3D output); the signed voxel remesh handles them.
+        report.warnings.append(f"{nonmanifold} non-manifold edges: surface repair skipped")
+        return mesh
     ms = _to_meshset(mesh)
     ms.meshing_remove_duplicate_vertices()
     ms.meshing_remove_duplicate_faces()
@@ -171,16 +191,18 @@ def flatten_base(mesh: trimesh.Trimesh, depth: float, report: PrintReport) -> tr
 
 
 def voxel_remesh(mesh: trimesh.Trimesh, cell: float) -> trimesh.Trimesh:
+    """Rebuild the surface as the zero level of a signed distance field (needs consistent winding)."""
     ms = _to_meshset(mesh)
     ms.generate_resampled_uniform_mesh(
         cellsize=pymeshlab.PureValue(cell),
         offset=pymeshlab.PureValue(0.0),
         mergeclosevert=True,
         multisample=True,
-        absdist=True,
+        absdist=False,
     )
     out = _from_meshset(ms)
-    trimesh.repair.fix_normals(out)
+    if len(out.faces) == 0:
+        raise ValueError("voxel remesh produced an empty mesh")
     return out
 
 
@@ -198,7 +220,8 @@ def decimate(mesh: trimesh.Trimesh, target_faces: int) -> trimesh.Trimesh:
         autoclean=True,
     )
     out = _from_meshset(ms)
-    trimesh.repair.fix_normals(out)
+    if out.is_watertight:  # fix_normals guesses wrong on open/non-manifold meshes
+        trimesh.repair.fix_normals(out)
     return out
 
 
@@ -229,25 +252,40 @@ def prepare(src: str | Path, out_stem: str | Path, settings: PrintSettings | Non
         height += settings.flatten_base_mm
     scale_and_place(mesh, height)
 
-    if settings.flatten_base_mm > 0:
-        mesh = flatten_base(mesh, settings.flatten_base_mm, report)
-
+    # Remesh before flattening: capping the cut needs a closed cross-section.
     if settings.remesh_if_open and not mesh.is_watertight:
         mesh = voxel_remesh(mesh, settings.remesh_cell_mm)
         report.remeshed = True
+        if not mesh.is_watertight:
+            # Thin parts can leave a few open cells; the remesh output is manifold, so
+            # the ordinary repair (hole closing) is safe here.
+            mesh = repair(mesh, settings.close_holes_max_edges, report)
         scale_and_place(mesh, None)
 
-    mesh = decimate(mesh, settings.target_faces or 0)
+    if settings.flatten_base_mm > 0:
+        mesh = flatten_base(mesh, settings.flatten_base_mm, report)
+
+    target = settings.target_faces or (REMESH_FACE_CAP if report.remeshed else 0)
+    mesh = decimate(mesh, target)
+    if mesh.is_watertight and mesh.volume < 0:
+        mesh.invert()  # inside-out shell
 
     report.faces = int(len(mesh.faces))
     report.vertices = int(len(mesh.vertices))
     report.watertight = bool(mesh.is_watertight)
     report.winding_consistent = bool(mesh.is_winding_consistent)
+    report.nonmanifold_edges = nonmanifold_edge_count(mesh)
     report.size_mm = [round(float(v), 3) for v in mesh.extents]
     if report.watertight:
         report.volume_cm3 = round(abs(float(mesh.volume)) / 1000.0, 3)
+        # Solid figures fill ~10% of their bounding box; double-walled shells ~1%.
+        fill = abs(float(mesh.volume)) / float(np.prod(mesh.extents))
+        if fill < HOLLOW_FILL_RATIO:
+            report.warnings.append(
+                f"volume is only {fill:.1%} of the bounding box: the mesh may be a hollow shell"
+            )
     else:
-        report.warnings.append("mesh is not watertight; check it in your slicer or enable remesh")
+        report.warnings.append("mesh is not watertight; your slicer's repair may be needed")
 
     for fmt in settings.formats:
         path = out_stem.with_suffix(f".{fmt}")

@@ -74,6 +74,44 @@ def test_flatten_base_gives_flat_bottom(tmp_path):
     assert report.watertight
 
 
+def test_nonmanifold_input_is_remeshed_not_flipped(tmp_path):
+    # A duplicated face makes three edges non-manifold, like TRELLIS.2 output. The old
+    # repair path deleted faces and flipped patches inside-out; now it must be remeshed.
+    box = trimesh.creation.box(extents=[1.0, 0.6, 2.0])
+    faces = np.vstack([box.faces, box.faces[:1]])
+    broken = trimesh.Trimesh(box.vertices, faces, process=False)
+    src = tmp_path / "broken.glb"
+    broken.export(src)
+
+    report = prepare(src, tmp_path / "out", PrintSettings(
+        source_up="z", target_height_mm=20, remesh_cell_mm=0.2, flatten_base_mm=0.3, target_faces=None,
+    ))
+    assert any("non-manifold" in w for w in report.warnings)
+    assert report.remeshed and report.flattened
+    assert report.watertight and report.winding_consistent and report.nonmanifold_edges == 0
+    mesh = trimesh.load(report.files["stl"], force="mesh")
+    assert mesh.volume > 0  # outward-facing
+    assert mesh.extents[2] == pytest.approx(20.0, rel=0.02)
+
+
+def test_hollow_shell_is_flagged(tmp_path, figure_glb):
+    # One connected, watertight thin-walled box (a tunnel joins the cavity to the outside),
+    # like the double-skinned meshes TRELLIS.2's narrow-band remesh produces.
+    outer = trimesh.creation.box(extents=[1.0, 1.0, 1.0])
+    cavity = trimesh.creation.box(extents=[0.99, 0.99, 0.99])
+    tunnel = trimesh.creation.cylinder(radius=0.05, height=0.6, sections=24)
+    tunnel.apply_translation([0, 0, 0.4])
+    shell = trimesh.boolean.difference([outer, trimesh.boolean.union([cavity, tunnel], engine="manifold")], engine="manifold")
+    src = tmp_path / "shell.glb"
+    shell.export(src)
+    report = prepare(src, tmp_path / "shell", PrintSettings(source_up="z", target_faces=None))
+    assert report.watertight
+    assert any("hollow" in w for w in report.warnings)
+
+    solid = prepare(figure_glb, tmp_path / "solid", PrintSettings(target_faces=None))
+    assert not any("hollow" in w for w in solid.warnings)
+
+
 def test_exports_requested_formats(figure_glb, tmp_path):
     report = prepare(figure_glb, tmp_path / "out", PrintSettings(formats=("stl", "3mf")))
     for key in ("stl", "3mf", "preview"):

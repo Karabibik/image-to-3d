@@ -235,7 +235,8 @@ def build() -> gr.Blocks:
                             rot_x = gr.Radio(ROTATIONS, value=0, label="Extra rotation around X (if the result lies down)")
                             rot_z = gr.Radio(ROTATIONS, value=0, label="Extra rotation around Z")
                             remesh = gr.Checkbox(
-                                value=defaults["remesh_if_open"], label="Voxel-remesh if the mesh is not watertight"
+                                value=defaults["remesh_if_open"],
+                                label="Voxel-remesh if the mesh is not watertight (TRELLIS.2/Pixal3D; adds a few minutes)",
                             )
                             cell = gr.Slider(
                                 0.02, 0.3, value=defaults["remesh_cell_mm"], step=0.01, label="Remesh voxel size (mm)"

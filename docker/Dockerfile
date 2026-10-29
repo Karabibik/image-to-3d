@@ -65,6 +65,12 @@ RUN python3.11 -m venv /opt/venvs/ui \
     && /opt/venvs/ui/bin/python -m pip install --upgrade pip \
     && /opt/venvs/ui/bin/python -m pip install -r /opt/build/envs/ui.txt
 
+# Runtime-only cache locations, kept on the pod volume (declared here so changing them
+# does not invalidate the heavy layers above).
+ENV HY3DGEN_MODELS=/workspace/.cache/hy3dgen \
+    HI3D_CACHE_DIR=/workspace/.cache/hi3d \
+    TORCH_HOME=/workspace/.cache/torch
+
 COPY app /opt/app/app
 COPY workers /opt/app/workers
 COPY tests /opt/app/tests

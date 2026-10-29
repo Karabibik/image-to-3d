@@ -54,6 +54,15 @@ def test_generate_refine_print(runner, cutout):
     assert again.faces <= 2100
 
 
+def test_generator_facing_correction_applies_to_runs_and_reprints(runner, cutout):
+    settings = PrintSettings(target_faces=2000, rotate_z_deg=90)
+    result = runner.run(Job(cutout, "pixal3d", "hi3d", 3, {}, {}, settings, "u2net"))
+    assert result.record["print_settings"]["rotate_z_deg"] == 270  # user's 90 + Pixal3D's 180
+    plain = runner.run(Job(cutout, "hunyuan", None, 3, {}, {}, settings, "u2net"))
+    assert plain.record["print_settings"]["rotate_z_deg"] == 90
+    runner.reprint(result.run_dir, PrintSettings(target_faces=2000))  # must not raise or drop the turn
+
+
 def test_identical_jobs_get_separate_run_dirs(runner, cutout):
     settings = PrintSettings(target_faces=2000)
     first = runner.run(Job(cutout, "hunyuan", None, 5, {}, {}, settings, "u2net"))

@@ -5,6 +5,8 @@
 # generators / refiners: what the UI offers. `params` become UI controls and are passed
 #          to the worker unchanged. `advanced: true` puts a control in a collapsed panel.
 # up: up axis of the mesh the model writes (all write glTF, which is Y-up).
+# rotate_z: extra turn (degrees) so a generator's output faces front; refiners keep the
+#           orientation of their input, so only generators set it.
 
 #
 # prefetch: Hugging Face repos `python -m app.prefetch <worker...>` downloads ahead of
@@ -18,7 +20,8 @@ workers:
     root: /opt/models/Hunyuan3D-2.1
     port: 7871
     prefetch:
-      - {repo: tencent/Hunyuan3D-2.1, allow: ["hunyuan3d-dit-v2-1/*"]}
+      # hy3dshape downloads into $HY3DGEN_MODELS/<repo>, not the HF cache.
+      - {repo: tencent/Hunyuan3D-2.1, allow: ["hunyuan3d-dit-v2-1/*"], local_dir: "${HY3DGEN_MODELS}/tencent/Hunyuan3D-2.1"}
   ultrashape:
     python: /opt/venvs/ultrashape/bin/python
     script: workers/ultrashape_worker.py
@@ -53,16 +56,19 @@ workers:
     root: /opt/models/Hi3Dv1.0
     port: 7875
     prefetch:
-      - {repo: hi3d-official/Hi3Dv1.0}
-      - {repo: facebook/dinov2-large, <<: *safetensors_only}
-      - {repo: openai/clip-vit-large-patch14, <<: *safetensors_only}
+      # Hi3D's loader rejects any symlink besides its runtime files, so it gets its own
+      # cache ($HI3D_CACHE_DIR, also passed by the worker) and only those files.
+      - {repo: hi3d-official/Hi3Dv1.0, cache_dir: "${HI3D_CACHE_DIR}",
+         allow: ["model_index.json", "scheduler/*", "vae/*", "transformer_512/*", "transformer_1024/*"]}
+      - {repo: facebook/dinov2-large, cache_dir: "${HI3D_CACHE_DIR}", <<: *safetensors_only}
+      - {repo: openai/clip-vit-large-patch14, cache_dir: "${HI3D_CACHE_DIR}", <<: *safetensors_only}
 
 generators:
   hunyuan:
     label: Hunyuan3D 2.1
     worker: hunyuan
     up: y
-    notes: Solid all-rounder, the model your old template used. About 10 GB VRAM.
+    notes: Solid all-rounder, the model your old template used. 11.5 GB VRAM measured on an A40.
     params:
       steps: {type: int, default: 30, min: 5, max: 100, step: 1, label: Inference steps}
       guidance_scale: {type: float, default: 5.0, min: 1.0, max: 15.0, step: 0.5, label: Guidance scale}
@@ -72,7 +78,7 @@ generators:
     label: TRELLIS.2
     worker: trellis
     up: y
-    notes: Strongest open model on 3D Arena; good with sharp edges and thin parts. Needs 24 GB+, 1536 is slow.
+    notes: Strongest open model on 3D Arena; good with sharp edges and thin parts. 9.9 GB VRAM at 1024 (A40); 1536 is slow. Print prep remeshes its output.
     params:
       resolution: {type: choice, choices: ["512", "1024", "1536"], default: "1024", label: Resolution}
       ss_steps: {type: int, default: 12, min: 4, max: 50, step: 1, label: Structure steps, advanced: true}
@@ -84,7 +90,9 @@ generators:
     label: Pixal3D
     worker: pixal3d
     up: y
-    notes: Pixel-aligned, so it follows the artwork most closely. ~18 GB VRAM, ~10-12 GB in low-VRAM mode.
+    # Its exported GLB faces away from the viewer; print prep turns it around.
+    rotate_z: 180
+    notes: Pixel-aligned, so it follows the artwork most closely. 35 GB VRAM at 1536 (A40); low-VRAM mode for smaller cards. Print prep remeshes its output.
     params:
       resolution: {type: choice, choices: ["1024", "1536"], default: "1536", label: Resolution}
       fov: {type: float, default: -1.0, min: -1.0, max: 1.0, step: 0.05, label: Camera FOV (radians), info: -1 estimates it with MoGe-2; try 0.2 if the result looks stretched}
@@ -97,7 +105,7 @@ refiners:
     label: UltraShape 1.0
     worker: ultrashape
     up: y
-    notes: Adds fine geometric detail. Trained on Hunyuan3D 2.1 coarse meshes, so it pairs best with that generator.
+    notes: Adds fine geometric detail. Trained on Hunyuan3D 2.1 coarse meshes, so it pairs best with that generator. 15 GB VRAM; ~10 min at 50 steps on an A40.
     params:
       steps: {type: int, default: 50, min: 12, max: 100, step: 1, label: Steps, info: 12 is much faster with a small quality cost}
       octree_res: {type: int, default: 1024, min: 512, max: 2048, step: 128, label: Mesh grid resolution}
@@ -122,7 +130,7 @@ print:
     target_faces: 200000
     flatten_base_mm: 0.3
     min_component_ratio: 0.02
-    remesh_if_open: false
+    remesh_if_open: true
     remesh_cell_mm: 0.05
 
 background_removal:
