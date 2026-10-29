@@ -27,6 +27,9 @@ clone_pinned() {
 make_venv() {
     local name=$1 python=$2
     "$python" -m venv --system-site-packages "$VENVS/$name"
+    # Ubuntu's ensurepip bundles setuptools 59, which ignores pyproject [project]
+    # metadata: packages built without isolation would install as "UNKNOWN".
+    "$VENVS/$name/bin/python" -m pip install --no-cache-dir --upgrade pip "setuptools>=75" wheel
 }
 
 vpip() {

@@ -10,6 +10,7 @@ clone_pinned "$REPO" "$SHA" "$MODELS/UltraShape-1.0"
 make_venv ultrashape python3.10
 vpip ultrashape -r "$ENVS/ultrashape.txt"
 # CUDA extension, compiled against the shared torch, hence no build isolation.
-vpip ultrashape --no-build-isolation "git+https://github.com/ashawkey/cubvh@$CUBVH_SHA"
+# --no-deps: its runtime only needs numpy/torch; the declared kiui dependency is unused.
+vpip ultrashape --no-build-isolation --no-deps "git+https://github.com/ashawkey/cubvh@$CUBVH_SHA"
 check_import ultrashape "$MODELS/UltraShape-1.0" \
     "import sys; sys.path.insert(0, 'scripts'); import cubvh, flash_attn; import infer_dit_refine; from ultrashape.pipelines import UltraShapePipeline"
