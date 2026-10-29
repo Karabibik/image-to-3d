@@ -1,0 +1,10 @@
+# Pixal3D additions on top of trellis.txt (upstream requirements.txt minus the demo UI).
+# MoGe itself is installed --no-deps by install_trellis.sh: Pixal3D's install ends with its
+# own utils3d build replacing MoGe's utils3d pin, so MoGe's runtime deps are listed here.
+diffusers==0.37.1
+accelerate==1.13.0
+plyfile==1.1.3
+click==8.3.1
+scipy==1.16.3
+matplotlib==3.10.8
+pipeline @ git+https://github.com/EasternJournalist/pipeline.git@866f059d2a05cde05e4a52211ec5051fd5f276d6

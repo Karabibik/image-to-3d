@@ -1,1 +1,10 @@
 deneme/
+.venv/
+venv/
+.env
+__pycache__/
+*.pyc
+.pytest_cache/
+outputs/
+logs/
+.ruff_cache/

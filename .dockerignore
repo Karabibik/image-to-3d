@@ -1,0 +1,13 @@
+.git
+.github
+.venv
+deneme
+outputs
+logs
+**/__pycache__
+**/*.pyc
+.pytest_cache
+README.md
+runpod
+.env
+venv
