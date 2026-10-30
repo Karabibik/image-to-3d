@@ -9,12 +9,15 @@ Everything runs on a rented RunPod GPU behind one web UI.
 | **Hunyuan3D 2.1** | generator from one image, shape only | 11.5 GB | Tencent Hunyuan Community (excludes EU, UK, South Korea) |
 | **Hunyuan3D-2mv** | generator from turnaround views (front/left/back/right), the best results | 9.5 GB, Turbo 6.1 GB | Tencent Hunyuan 3D 2.0 Community (excludes EU, UK, South Korea) |
 | **UltraShape 1.0** | refiner, the sharpest detail | 15.0 GB | Apache-2.0 |
-| **Hi3D v1.0** *(experimental)* | refiner, up to 1536 | 20.2 GB at 1024 (1536 only tested upstream on 96 GB) | Hi3D Open License |
+| **Hi3D v1.0** *(experimental)* | refiner, up to 1536 | 20.4 GB at 1024, 10.9 GB with CPU offload (1536 only tested upstream on 96 GB) | Hi3D Open License |
+
+These peaks are what PyTorch allocated; the card has to hold more (UltraShape occupied 18.4 GB of an A40).
 
 TRELLIS.2 and Pixal3D were removed in v0.3.0 after side-by-side tests on painted-mini renders; tag `v0.2.1` still has them.
 
-Timings on an A40, including loading: Hunyuan3D 44 s, Hunyuan3D-2mv about 2 minutes, UltraShape 611 s at 50 steps
-(use 12 steps for a quick pass), Hi3D at 1024 about 7 minutes.
+Timings on an A40 for one model, excluding print prep: Hunyuan3D 44 s (about 100 s on first use), Hunyuan3D-2mv about 2 minutes, UltraShape about 10 minutes at 50 steps
+(use 12 steps for a quick pass), Hi3D at 1024 about 7 minutes, or 11 with CPU offload.
+Whole runs from *Generate* to the STL, with default settings: Hunyuan3D alone about 4 minutes, with Hi3D about 12, with UltraShape about 17, Hunyuan3D-2mv with UltraShape about 18.
 
 Meshes that are still open or non-manifold after repair are rebuilt by print prep as a solid at 0.05 mm
 (on by default, about 1-2 minutes of CPU time). Hi3D needs this because its surfaces are open.
@@ -48,20 +51,22 @@ browser ─► RunPod proxy :7860 ─► Gradio UI + orchestrator (/opt/venvs/ui
 2. **Docker Hub:** create an access token (Account settings → Personal access tokens, read/write).
    In the GitHub repo, open Settings → Secrets and variables → Actions and add `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN`.
 3. **Build:** every push to `main` runs tests and builds `docker.io/<you>/image-to-3d:main`.
-   For a release, push a tag (`git tag v0.1.0 && git push --tags`) to get `:v0.1.0`. The first build takes roughly 1-2 h; later builds reuse the layer cache.
+   For a release, push a tag (`git tag v0.1.0 && git push --tags`) to get `:v0.1.0`. The first build takes roughly 1-2 h; later builds reuse the layer cache and take about 15 minutes.
 4. **RunPod secret:** in the RunPod console, open Secrets and create `ui_password`. The UI asks for user `admin` with this password.
 5. **RunPod template:** [runpod/template.json](runpod/template.json) is the request body for RunPod's REST v2 `POST /templates`, and what Claude sends through the RunPod MCP.
    To create it in the console instead, open Templates → New Template and enter:
-   - Image: `docker.io/<you>/image-to-3d:v0.3.0`
+   - Image: `docker.io/<you>/image-to-3d:v0.3.1`
    - Container disk: 60 GB. Volume disk: 60 GB at `/workspace` (all models' weights take ~32 GB).
    - HTTP ports: `7860` (UI) and `8888` (Jupyter). TCP port: `22`.
    - Env: `UI_PASSWORD` = `{{ RUNPOD_SECRET_ui_password }}`, plus optionally `PREFETCH_MODELS` = `hunyuan hunyuan2mv ultrashape` (or `all`).
-   - Allowed CUDA versions: 12.4 or newer (the torch stack uses CUDA 12.4 wheels).
+   - Allowed CUDA versions: 12.6 or newer.
 
 ## Each session
 
 1. Deploy a pod from the template on an **A40 48 GB** (cheap, runs everything except Hi3D at 1536).
    An RTX A6000 or L40S is faster. Use an A100/H100 80 GB for Hi3D at 1536.
+   Cards with 20-24 GB should fit if you turn on Hi3D's CPU offload, but none has been tested.
+   Pick a pod with at least 32 GB of RAM: the UI held about 20 GB after a few runs, mostly background removal, and print prep adds up to 9 GB.
    **Avoid Blackwell** (RTX 5090, RTX PRO 6000, B200): this image has no kernels for them.
 2. Open `https://<pod-id>-7860.proxy.runpod.net` and log in.
 3. Upload one or more images (or a turnaround sheet, see below). PNGs with transparency are used as-is; other images get their background removed.
@@ -89,7 +94,7 @@ The front is required; any of the other three can stay empty.
 
 Use **Hunyuan3D-2mv**, Hunyuan's multi-view shape model. It copes with views that are a little off,
 including renders from above, and gave accurate figures on painted-mini renders. Add **UltraShape** for the sharpest detail
-(rivets, fingers, wrapped handles): ~1 minute for 2mv plus ~10 minutes for UltraShape. Refiners use the front view.
+(rivets, fingers, wrapped handles): about 18 minutes in total. Refiners use the front view.
 *Turbo* (5-10 steps) is faster with a small quality cost. The first use of each variant downloads ~5 GB.
 
 ## Print settings

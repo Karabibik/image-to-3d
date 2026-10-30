@@ -74,6 +74,21 @@ def test_flatten_base_gives_flat_bottom(tmp_path):
     assert report.watertight
 
 
+def test_flatten_base_does_not_use_slice_plane_on_closed_meshes(tmp_path, monkeypatch):
+    # Its cap left zero-width slits along a straight rim of a Hi3D solid (not reproducible on
+    # small meshes), so the report said "not watertight" for a mesh that had been closed.
+    def fail(*_args, **_kwargs):
+        raise AssertionError("slice_plane used on a closed mesh")
+
+    monkeypatch.setattr(trimesh.Trimesh, "slice_plane", fail)
+    sphere = trimesh.creation.icosphere(subdivisions=4)
+    src = tmp_path / "sphere.glb"
+    sphere.export(src)
+    report = prepare(src, tmp_path / "out", PrintSettings(target_height_mm=20, flatten_base_mm=1.0, target_faces=None))
+    assert report.flattened and report.watertight and not report.warnings
+    assert report.size_mm[2] == pytest.approx(20.0, rel=1e-3)
+
+
 def test_nonmanifold_input_is_remeshed_not_flipped(tmp_path):
     # A duplicated face makes three edges non-manifold, as in messy generated meshes. The old
     # repair path deleted faces and flipped patches inside-out; now it must be remeshed.

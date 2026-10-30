@@ -80,7 +80,7 @@ refiners:
     label: UltraShape 1.0
     worker: ultrashape
     up: y
-    notes: Adds fine geometric detail. Trained on Hunyuan3D 2.1 coarse meshes, so it pairs best with that generator. 15 GB VRAM; ~10 min at 50 steps on an A40.
+    notes: Adds fine geometric detail. Trained on Hunyuan3D 2.1 coarse meshes, so it pairs best with that generator. Occupies 18.4 GB of VRAM; ~10 min at 50 steps on an A40.
     params:
       steps: {type: int, default: 50, min: 12, max: 100, step: 1, label: Steps, info: 12 is much faster with a small quality cost}
       octree_res: {type: int, default: 1024, min: 512, max: 2048, step: 128, label: Mesh grid resolution}
@@ -91,7 +91,7 @@ refiners:
     label: Hi3D v1.0 (experimental)
     worker: hi3d
     up: y
-    notes: Geometry refiner up to 1536. 20 GB VRAM at 1024 on an A40, so use CPU offload on smaller cards. 1536 was only validated on a 96 GB GPU. Print prep rebuilds its open surface as a solid.
+    notes: Geometry refiner up to 1536. 20 GB VRAM at 1024 on an A40; CPU offload halves that to 11 GB for about 1.5× the time, so use it on smaller cards. 1536 was only validated on a 96 GB GPU. Print prep rebuilds its open surface as a solid.
     params:
       resolution: {type: choice, choices: ["512", "1024", "1536"], default: "1024", label: Resolution}
       steps: {type: int, default: 25, min: 10, max: 50, step: 1, label: Steps per pass}

@@ -1,6 +1,6 @@
 {
   "name": "image-to-miniature",
-  "image": "docker.io/karabibik/image-to-3d:v0.3.0",
+  "image": "docker.io/karabibik/image-to-3d:v0.3.1",
   "category": "NVIDIA",
   "disk": 60,
   "mounts": {
@@ -12,7 +12,7 @@
     "UI_PASSWORD": "{{ RUNPOD_SECRET_ui_password }}",
     "PREFETCH_MODELS": "hunyuan hunyuan2mv ultrashape"
   },
-  "allowedCudaVersions": ["12.4", "12.5", "12.6", "12.7", "12.8", "12.9", "13.0", "13.1", "13.2", "13.3", "13.4"],
+  "allowedCudaVersions": ["12.6", "12.7", "12.8", "12.9", "13.0", "13.1", "13.2", "13.3", "13.4"],
   "startJupyter": true,
   "startSsh": true,
   "public": false

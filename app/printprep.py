@@ -13,6 +13,7 @@ import logging
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+import manifold3d
 import numpy as np
 import pymeshlab
 import trimesh
@@ -190,10 +191,23 @@ def scale_and_place(mesh: trimesh.Trimesh, target_height: float | None) -> None:
     mesh.apply_translation([-(lo[0] + hi[0]) / 2, -(lo[1] + hi[1]) / 2, -lo[2]])
 
 
+def _trim_solid(mesh: trimesh.Trimesh, height: float) -> trimesh.Trimesh:
+    """Keep what is above `height`. Unlike slice_plane's cap, this keeps a closed mesh closed."""
+    solid = manifold3d.Manifold(manifold3d.Mesh(
+        vert_properties=np.asarray(mesh.vertices, dtype=np.float32),
+        tri_verts=np.asarray(mesh.faces, dtype=np.uint32),
+    ))
+    out = solid.trim_by_plane((0.0, 0.0, 1.0), height).to_mesh()
+    return trimesh.Trimesh(np.asarray(out.vert_properties)[:, :3], np.asarray(out.tri_verts), process=False)
+
+
 def flatten_base(mesh: trimesh.Trimesh, depth: float, report: PrintReport) -> trimesh.Trimesh:
     """Cut `depth` off the bottom (mesh must already sit on z=0) and cap the cut."""
     try:
-        cut = mesh.slice_plane(plane_origin=[0, 0, depth], plane_normal=[0, 0, 1], cap=True)
+        if mesh.is_volume:
+            cut = _trim_solid(mesh, depth)
+        else:
+            cut = mesh.slice_plane(plane_origin=[0, 0, depth], plane_normal=[0, 0, 1], cap=True)
     except Exception as exc:  # trimesh raises a variety of errors on bad cross-sections
         report.warnings.append(f"base flattening failed: {exc}")
         return mesh
