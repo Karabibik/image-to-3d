@@ -2,6 +2,9 @@
 
 Usage (inside the pod):
     /opt/venvs/ui/bin/python scripts/smoke_test.py /workspace/test.png [--only hunyuan trellis ...]
+        [--views /workspace/views]   # front.png, left.png, back.png, right.png (any, front required)
+
+Multi-view pipelines run only with --views.
 
 Writes a Markdown table to /workspace/outputs/smoke_<timestamp>.md and prints it.
 """
@@ -16,6 +19,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from app.multiview import SLOTS  # noqa: E402
 from app.orchestrator import Job, Runner, WorkerManager, load_config  # noqa: E402
 from app.printprep import PrintSettings  # noqa: E402
 
@@ -28,6 +32,10 @@ PIPELINES = [
     ("pixal3d", None, {"resolution": "1536"}, {}),
     ("hunyuan", "hi3d", {}, {"resolution": "1024"}),
     ("hunyuan", "hi3d", {}, {"resolution": "1536"}),
+    ("hunyuan2mv", None, {}, {}),
+    ("hunyuan2mv", None, {"variant": "turbo", "steps": 5}, {}),
+    ("hunyuan2mv", "ultrashape", {}, {}),
+    ("pixal3d_mv", None, {"resolution": "1536"}, {}),
 ]
 
 
@@ -36,7 +44,9 @@ def main() -> None:
     parser.add_argument("image", type=Path)
     parser.add_argument("--only", nargs="*", help="limit to pipelines that use these model keys")
     parser.add_argument("--data-dir", type=Path, default=Path("/workspace"))
+    parser.add_argument("--views", type=Path, help="folder with <slot>.png turnaround views")
     args = parser.parse_args()
+    views = {p.stem: p for p in sorted(args.views.glob("*.png")) if p.stem in SLOTS} if args.views else {}
 
     config = load_config()
     workers = WorkerManager(config["workers"], args.data_dir / "logs")
@@ -46,12 +56,16 @@ def main() -> None:
         for gen, ref, gen_params, ref_params in PIPELINES:
             if args.only and not ({gen, ref} & set(args.only)):
                 continue
+            multiview = config["generators"][gen].get("input") == "multiview"
+            if multiview and "front" not in views:
+                continue
             label = gen + (f" + {ref}" if ref else "") + f" {gen_params or ''}{ref_params or ''}"
             print(f"=== {label}", flush=True)
             started = time.time()
             try:
-                result = runner.run(Job(args.image, gen, ref, 1234, gen_params, ref_params,
-                                        PrintSettings(target_faces=None), "birefnet-general"))
+                result = runner.run(Job(views["front"] if multiview else args.image, gen, ref, 1234,
+                                        gen_params, ref_params, PrintSettings(target_faces=None),
+                                        "birefnet-general", views=views if multiview else None))
             except Exception as exc:
                 rows.append(f"| {label} | failed | | | | `{str(exc).splitlines()[0][:120]}` |")
                 continue

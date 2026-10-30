@@ -4,9 +4,12 @@
 #          at a time so each gets the whole GPU. Paths are inside the Docker image.
 # generators / refiners: what the UI offers. `params` become UI controls and are passed
 #          to the worker unchanged. `advanced: true` puts a control in a collapsed panel.
+# input: "multiview" for generators that take turnaround views instead of one image.
 # up: up axis of the mesh the model writes (all write glTF, which is Y-up).
 # rotate_z: extra turn (degrees) so a generator's output faces front; refiners keep the
 #           orientation of their input, so only generators set it.
+# level_param: a camera-elevation param (degrees) that print prep tilts the mesh back by,
+#           for generators that build the mesh in the front camera's frame.
 
 #
 # prefetch: Hugging Face repos `python -m app.prefetch <worker...>` downloads ahead of
@@ -22,6 +25,15 @@ workers:
     prefetch:
       # hy3dshape downloads into $HY3DGEN_MODELS/<repo>, not the HF cache.
       - {repo: tencent/Hunyuan3D-2.1, allow: ["hunyuan3d-dit-v2-1/*"], local_dir: "${HY3DGEN_MODELS}/tencent/Hunyuan3D-2.1"}
+  hunyuan2mv:
+    # Shares the hunyuan venv: hy3dgen's shape path needs nothing beyond its pins.
+    python: /opt/venvs/hunyuan/bin/python
+    script: workers/hunyuan2mv_worker.py
+    root: /opt/models/Hunyuan3D-2
+    port: 7876
+    prefetch:
+      - {repo: tencent/Hunyuan3D-2mv, allow: ["hunyuan3d-dit-v2-mv/config.yaml", "hunyuan3d-dit-v2-mv/model.fp16.safetensors"],
+         local_dir: "${HY3DGEN_MODELS}/tencent/Hunyuan3D-2mv"}
   ultrashape:
     python: /opt/venvs/ultrashape/bin/python
     script: workers/ultrashape_worker.py
@@ -96,6 +108,33 @@ generators:
     params:
       resolution: {type: choice, choices: ["1024", "1536"], default: "1536", label: Resolution}
       fov: {type: float, default: -1.0, min: -1.0, max: 1.0, step: 0.05, label: Camera FOV (radians), info: -1 estimates it with MoGe-2; try 0.2 if the result looks stretched}
+      low_vram: {type: bool, default: false, label: Low-VRAM mode}
+      ss_steps: {type: int, default: 12, min: 4, max: 50, step: 1, label: Structure steps, advanced: true}
+      shape_steps: {type: int, default: 12, min: 4, max: 50, step: 1, label: Shape steps, advanced: true}
+  # Turnaround-sheet generators (input: multiview) get {slot: image} views; the front is required.
+  hunyuan2mv:
+    label: Hunyuan3D-2mv
+    worker: hunyuan2mv
+    input: multiview
+    up: y
+    notes: Shape from front / side / back views; any subset that includes the front works. ~5 GB download per variant.
+    params:
+      variant: {type: choice, choices: [standard, turbo, fast], default: standard, label: Model variant, info: "Turbo: step-distilled, use 5-10 steps; Fast: guidance-distilled"}
+      steps: {type: int, default: 50, min: 5, max: 100, step: 1, label: Inference steps}
+      guidance_scale: {type: float, default: 5.0, min: 1.0, max: 15.0, step: 0.5, label: Guidance scale}
+      octree_resolution: {type: int, default: 384, min: 256, max: 512, step: 32, label: Mesh grid resolution}
+      num_chunks: {type: int, default: 200000, min: 20000, max: 1000000, step: 20000, label: Decode chunk size, advanced: true}
+  pixal3d_mv:
+    label: Pixal3D multi-view
+    worker: pixal3d
+    input: multiview
+    up: y
+    rotate_z: 180
+    level_param: elevation
+    notes: Pixel-aligned to every view, so the views must be true front / side / back drawings (no 3/4 views). First use downloads ~22 GB of multi-view weights. Print prep remeshes its output.
+    params:
+      resolution: {type: choice, choices: ["1024", "1536"], default: "1536", label: Resolution}
+      elevation: {type: float, default: 0, min: -10, max: 45, step: 1, label: Camera elevation (degrees), info: "How far above the figure the views were drawn or rendered from (0 = eye level; renders showing the top of the base are often 20-30). Print prep stands the result back up."}
       low_vram: {type: bool, default: false, label: Low-VRAM mode}
       ss_steps: {type: int, default: 12, min: 4, max: 50, step: 1, label: Structure steps, advanced: true}
       shape_steps: {type: int, default: 12, min: 4, max: 50, step: 1, label: Shape steps, advanced: true}

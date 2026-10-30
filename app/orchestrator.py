@@ -16,8 +16,10 @@ from typing import Callable
 
 import httpx
 import yaml
+from PIL import Image
 
 from .imageprep import prepare_input
+from .multiview import align_views
 from .printprep import PrintReport, PrintSettings, prepare
 
 REPO_DIR = Path(__file__).resolve().parents[1]
@@ -138,6 +140,9 @@ class Job:
     print_settings: PrintSettings
     rembg_model: str
     name: str = ""
+    # Turnaround views for multi-view generators ({slot: image}, slots from app.multiview).
+    # `image` is then the front view, which refiners and the history use.
+    views: dict[str, Path] | None = None
 
 
 @dataclass
@@ -172,9 +177,14 @@ class Runner:
         job.name = job.name or safe_name(Path(job.image).stem)
         generator = self.config["generators"][job.generator]
         refiner = self.config["refiners"][job.refiner] if job.refiner else None
+        multiview = generator.get("input") == "multiview"
+        if multiview and not (job.views and "front" in job.views):
+            raise ValueError(f"{generator['label']} needs turnaround views including the front")
+        if job.views and not multiview:
+            raise ValueError(f"{generator['label']} takes a single image, not turnaround views")
         run_dir = self._new_run_dir(job)
 
-        status("Preparing image")
+        status("Preparing image" + ("s" if job.views else ""))
         image_path, removed = prepare_input(job.image, run_dir / "input.png", job.rembg_model)
         record: dict = {
             "name": job.name,
@@ -185,12 +195,15 @@ class Runner:
             "refiner": {"key": job.refiner, "params": job.ref_params} if job.refiner else None,
             "seed": job.seed,
         }
-
-        status(f"Generating with {generator['label']}")
-        result = self.workers.run(generator["worker"], {
+        request = {
             "task": "generate", "model": job.generator, "image": str(image_path),
             "out": str(run_dir / "raw.glb"), "seed": job.seed, "params": job.gen_params,
-        })
+        }
+        if job.views:
+            request["views"] = record["views"] = self._prepare_views(job, run_dir, image_path)
+
+        status(f"Generating with {generator['label']}")
+        result = self.workers.run(generator["worker"], request)
         mesh_path, up = result["mesh"], generator.get("up", "y")
         record["generator"]["info"] = result.get("info", {})
 
@@ -204,22 +217,44 @@ class Runner:
             record["refiner"]["info"] = result.get("info", {})
 
         status("Preparing for print")
-        settings = self._model_print_settings(job.print_settings, job.generator, up)
+        settings = self._model_print_settings(job.print_settings, job.generator, up, job.gen_params)
         report = prepare(mesh_path, run_dir / job.name, settings)
         record.update(final_mesh=mesh_path, print_settings=asdict(settings), report=report.as_dict())
         (run_dir / "run.json").write_text(json.dumps(record, indent=2), encoding="utf-8")
         return JobResult(run_dir=run_dir, report=report, record=record)
 
-    def _model_print_settings(self, settings: PrintSettings, generator: str, up: str) -> PrintSettings:
-        """Add the generator's facing correction (refiners keep their input's orientation)."""
-        turn = self.config["generators"].get(generator, {}).get("rotate_z", 0)
-        return replace(settings, source_up=up, rotate_z_deg=(settings.rotate_z_deg + turn) % 360)
+    @staticmethod
+    def _prepare_views(job: Job, run_dir: Path, front_cutout: Path) -> dict[str, str]:
+        """Cut out every view and frame them alike; returns {slot: path of view_<slot>.png}."""
+        cutouts = {}
+        for slot, src in job.views.items():
+            if slot == "front":  # job.image is the front view, already cut out as input.png
+                path = front_cutout
+            else:
+                path, _ = prepare_input(src, run_dir / f"cutout_{slot}.png", job.rembg_model)
+            cutouts[slot] = Image.open(path)
+        paths = {}
+        for slot, image in align_views(cutouts).items():
+            paths[slot] = str(run_dir / f"view_{slot}.png")
+            image.save(paths[slot])
+        return paths
+
+    def _model_print_settings(self, settings: PrintSettings, generator: str, up: str, params: dict) -> PrintSettings:
+        """Add the generator's facing and levelling corrections (refiners keep their input's pose)."""
+        spec = self.config["generators"].get(generator, {})
+        turn = spec.get("rotate_z", 0)
+        # rotate_x runs before rotate_z in print prep; for the generators that set level_param
+        # (Pixal3D's frame, turned 180 degrees) +elevation stands the figure back up.
+        tilt = float(params.get(spec["level_param"], 0)) if "level_param" in spec else 0.0
+        return replace(settings, source_up=up, rotate_x_deg=settings.rotate_x_deg + tilt,
+                       rotate_z_deg=(settings.rotate_z_deg + turn) % 360)
 
     def reprint(self, run_dir: Path, settings: PrintSettings) -> PrintReport:
         """Repeat print prep on a finished run's mesh, e.g. at another height or face budget."""
         record = json.loads((Path(run_dir) / "run.json").read_text(encoding="utf-8"))
         up = record.get("print_settings", {}).get("source_up", "y")
-        settings = self._model_print_settings(settings, record["generator"]["key"], up)
+        settings = self._model_print_settings(settings, record["generator"]["key"], up,
+                                              record["generator"].get("params", {}))
         faces = f"{settings.target_faces // 1000}k" if settings.target_faces else "full"
         height = f"{settings.target_height_mm:g}mm" if settings.target_height_mm else "native"
         stem = Path(run_dir) / f"{record['name']}_{height}_{faces}"

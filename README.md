@@ -9,6 +9,8 @@ Everything runs on a rented RunPod GPU behind one web UI.
 | **Hunyuan3D 2.1** | generator, shape only | 11.5 GB | Tencent Hunyuan Community (excludes EU, UK, South Korea) |
 | **TRELLIS.2** | generator, 512 / 1024 / 1536 | 9.9 GB at 1024 | MIT |
 | **Pixal3D** | generator, pixel-aligned (follows the art closely) | 35.2 GB at 1536 (use low-VRAM mode below 48 GB) | MIT |
+| **Hunyuan3D-2mv** | turnaround generator (front/left/back/right views) | not measured yet (~6 GB upstream) | Tencent Hunyuan 3D 2.0 Community (excludes EU, UK, South Korea) |
+| **Pixal3D multi-view** | turnaround generator, pixel-aligned to every view | not measured yet | MIT |
 | **UltraShape 1.0** | refiner, best after Hunyuan3D | 15.0 GB | Apache-2.0 |
 | **Hi3D v1.0** *(experimental)* | refiner, up to 1536 | 1536 only tested upstream on 96 GB | Hi3D Open License |
 
@@ -66,7 +68,7 @@ browser ─► RunPod proxy :7860 ─► Gradio UI + orchestrator (/opt/venvs/ui
    An RTX A6000 or L40S is faster. Use an A100/H100 80 GB for Hi3D at 1536.
    **Avoid Blackwell** (RTX 5090, RTX PRO 6000, B200): this image has no kernels for them.
 2. Open `https://<pod-id>-7860.proxy.runpod.net` and log in.
-3. Upload one or more images. PNGs with transparency are used as-is; other images get their background removed.
+3. Upload one or more images (or a turnaround sheet, see below). PNGs with transparency are used as-is; other images get their background removed.
    Choose a generator, an optional refiner and print settings, then click **Generate**.
    - The first use of each model downloads its weights (minutes). Watch progress under **Worker log**.
    - Several images form a batch, and the downloads then include a zip of all STL/3MF files.
@@ -76,6 +78,26 @@ browser ─► RunPod proxy :7860 ─► Gradio UI + orchestrator (/opt/venvs/ui
 
 Outputs per run (`/workspace/outputs/<date>/<time>_<name>_<models>_s<seed>/`):
 `input.png` (the cut-out actually used), `raw.glb`, `refined.glb`, `<name>.stl`, `<name>.3mf`, `<name>_preview.glb`, `run.json` (all settings and the report).
+Turnaround runs add `view_<slot>.png` (each view as the model saw it) and, for Pixal3D, `transforms.json` (its camera rig).
+
+## Turnaround sheets (multi-view)
+
+Switch **Input** to *Turnaround sheet* when you have the same figure from several sides. You can:
+- **Upload one sheet** with the figures side by side, set the left-to-right order (e.g. `front, left, back`) and click **Split sheet into views**.
+  Captions are dropped; use `skip` for views the models cannot use, such as 3/4 views.
+- **Or drop separate images** into the four slots.
+
+The slots are named by what the picture shows. *Left* means the figure faces left on the page, so you see its left side; *right* is the opposite.
+Every view is cut out and framed at the same figure height before it reaches the model.
+The front is required; any of the other three can stay empty.
+
+- **Hunyuan3D-2mv:** Hunyuan's multi-view shape model. *Turbo* (5–10 steps) is much faster.
+  The first use of each variant downloads ~5 GB.
+- **Pixal3D multi-view:** follows every view pixel by pixel, so the views must be true 0/90/180/270° drawings or renders.
+  If they were drawn or rendered from above (the top of the base is visible), set **Camera elevation**.
+  Pixal3D builds the mesh in the front camera's frame, and print prep tilts it back by that angle.
+  The first use downloads ~22 GB of multi-view weights.
+- Refiners still work: they use the front view.
 
 ## Print settings
 
@@ -95,6 +117,7 @@ Over SSH or a Jupyter terminal:
 /opt/venvs/ui/bin/python /opt/app/scripts/smoke_test.py /workspace/test.png
 ```
 It runs every generator/refiner combination and writes a table to `/workspace/outputs/smoke_<time>.md` with time, peak VRAM, faces and watertightness.
+Add `--views <folder>` with `front.png` (plus any of `left.png`, `back.png`, `right.png`) to include the turnaround generators.
 Use those numbers to correct the VRAM notes in `app/models.yaml`.
 
 ## Local development (no GPU)

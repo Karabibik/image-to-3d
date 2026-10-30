@@ -2,6 +2,7 @@
 .github
 .venv
 deneme
+multiview_trial
 outputs
 logs
 **/__pycache__

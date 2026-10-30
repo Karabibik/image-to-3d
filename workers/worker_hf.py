@@ -15,26 +15,34 @@ MIRRORS = {
 }
 
 
-def patched_pipeline_dir(repo_id: str, replacements: dict[str, str] = MIRRORS) -> str:
-    """Download `repo_id` and return a local dir whose pipeline.json uses `replacements`.
+def patched_pipeline_dir(
+    repo_id: str,
+    config: str = "pipeline.json",
+    allow: list[str] | None = None,
+    ignore: list[str] | None = None,
+    replacements: dict[str, str] = MIRRORS,
+) -> str:
+    """Download `repo_id` and return a local dir whose `config` uses `replacements`.
 
-    Everything except pipeline.json is symlinked to the HF snapshot, so nothing is copied.
+    `allow` / `ignore` limit the download (e.g. one pipeline's checkpoints). Everything
+    except `config` is symlinked to the HF snapshot, so nothing is copied.
     """
     from huggingface_hub import snapshot_download
 
-    snapshot = Path(snapshot_download(repo_id))
+    if allow is not None:
+        allow = [config, *allow]
+    snapshot = Path(snapshot_download(repo_id, allow_patterns=allow, ignore_patterns=ignore))
     hf_home = Path(os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingface"))
     target = hf_home / "patched" / repo_id.replace("/", "--")
     target.mkdir(parents=True, exist_ok=True)
     for entry in snapshot.iterdir():
-        if entry.name == "pipeline.json":
-            continue
         link = target / entry.name
         if link.is_symlink() or link.exists():
-            link.unlink()
-        link.symlink_to(entry.resolve() if entry.is_file() else entry)
-    text = (snapshot / "pipeline.json").read_text()
+            link.unlink()  # never write through an old link into the HF cache
+        if entry.name != config:
+            link.symlink_to(entry.resolve() if entry.is_file() else entry)
+    text = (snapshot / config).read_text()
     for old, new in replacements.items():
         text = text.replace(f'"{old}"', f'"{new}"')
-    (target / "pipeline.json").write_text(text)
+    (target / config).write_text(text)
     return str(target)

@@ -3,6 +3,7 @@
 import json
 from pathlib import Path
 
+import numpy as np
 import pytest
 from PIL import Image, ImageDraw
 
@@ -52,6 +53,41 @@ def test_generate_refine_print(runner, cutout):
     again = runner.reprint(result.run_dir, PrintSettings(target_height_mm=54, target_faces=2000))
     assert again.size_mm[2] == pytest.approx(54, rel=1e-3)
     assert again.faces <= 2100
+
+
+def test_turnaround_views_are_cut_out_framed_and_recorded(runner, cutout, tmp_path):
+    side = Image.new("RGBA", (128, 300), (0, 0, 0, 0))  # same figure, smaller upload
+    ImageDraw.Draw(side).ellipse((40, 20, 88, 280), fill=(60, 80, 200, 255))
+    side_path = tmp_path / "side.png"
+    side.save(side_path)
+    views = {"front": cutout, "left": side_path}
+    job = Job(cutout, "pixal3d_mv", "ultrashape", 2, {"elevation": 20}, {}, PrintSettings(target_faces=2000),
+              "u2net", name="Sheet", views=views)
+    result = runner.run(job)
+
+    assert result.run_dir.name.endswith("_Sheet_pixal3d_mv+ultrashape_s2")
+    assert result.record["views"] == {slot: str(result.run_dir / f"view_{slot}.png") for slot in views}
+    assert result.record["print_settings"]["rotate_z_deg"] == 180  # pixal3d_mv's facing turn
+    assert result.record["print_settings"]["rotate_x_deg"] == 20  # levelled by the camera elevation
+    runner.reprint(result.run_dir, PrintSettings(target_faces=2000))  # reprint reads the elevation back
+    framed = {slot: Image.open(result.run_dir / f"view_{slot}.png") for slot in views}
+    heights = []
+    for image in framed.values():
+        assert image.size == (1024, 1024)
+        rows = (np.asarray(image.getchannel("A")) > 16).any(axis=1).nonzero()[0]
+        heights.append(rows.max() - rows.min())
+    assert abs(heights[0] - heights[1]) <= 2  # framed to one figure height
+    assert (result.run_dir / "input.png").exists() and result.report.watertight
+
+
+def test_view_jobs_need_a_multiview_generator_and_a_front(runner, cutout):
+    settings = PrintSettings(target_faces=2000)
+    with pytest.raises(ValueError, match="single image"):
+        runner.run(Job(cutout, "hunyuan", None, 1, {}, {}, settings, "u2net", views={"front": cutout}))
+    with pytest.raises(ValueError, match="front"):
+        runner.run(Job(cutout, "hunyuan2mv", None, 1, {}, {}, settings, "u2net", views={"back": cutout}))
+    with pytest.raises(ValueError, match="front"):
+        runner.run(Job(cutout, "hunyuan2mv", None, 1, {}, {}, settings, "u2net"))
 
 
 def test_generator_facing_correction_applies_to_runs_and_reprints(runner, cutout):

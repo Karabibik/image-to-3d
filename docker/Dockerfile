@@ -59,6 +59,9 @@ RUN bash /opt/build/install_trellis.sh
 COPY scripts/build/install_hi3d.sh /opt/build/
 RUN bash /opt/build/install_hi3d.sh
 
+COPY scripts/build/install_hunyuan2mv.sh /opt/build/
+RUN bash /opt/build/install_hunyuan2mv.sh
+
 # UI / orchestrator venv: no torch, no system site-packages.
 COPY app/requirements.txt /opt/build/envs/ui.txt
 RUN python3.11 -m venv /opt/venvs/ui \

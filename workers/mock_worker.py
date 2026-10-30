@@ -27,6 +27,8 @@ def _placeholder_figure() -> trimesh.Trimesh:
 
 
 def generate(job: dict) -> dict:
+    if job.get("views"):
+        log(f"mock {job['model']}: views {', '.join(sorted(job['views']))}")
     for step in range(3):
         log(f"mock {job['model']}: step {step + 1}/3")
         time.sleep(float(os.environ.get("MOCK_DELAY", "0.7")))

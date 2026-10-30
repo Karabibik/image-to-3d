@@ -13,8 +13,11 @@ from datetime import datetime
 from pathlib import Path
 
 import gradio as gr
+from PIL import Image
 
-from .orchestrator import Job, Runner, WorkerManager, load_config
+from .imageprep import prepare_input
+from .multiview import SLOT_LABELS, SLOTS, split_sheet
+from .orchestrator import Job, Runner, WorkerManager, load_config, safe_name
 from .printprep import PrintSettings
 
 DATA_DIR = Path(os.environ.get("DATA_DIR", "/workspace" if Path("/workspace").is_dir() else Path.cwd()))
@@ -91,27 +94,67 @@ def _files(report) -> list[str]:
 
 # ---------------------------------------------------------------- handlers
 
+def _generator_choices(mode: str) -> list[tuple[str, str]]:
+    return [(g["label"], k) for k, g in CONFIG["generators"].items() if g.get("input", "single") == mode]
+
+
+def _split_sheet(sheet: str | None, order: str, rembg_model: str):
+    if not sheet:
+        raise gr.Error("Upload a turnaround sheet first.")
+    names = [name.strip().lower() for name in order.replace(";", ",").split(",") if name.strip()]
+    unknown = [name for name in names if name not in (*SLOTS, "skip")]
+    if unknown:
+        raise gr.Error(f"Unknown view name(s) {', '.join(unknown)}; use {', '.join(SLOTS)} or skip.")
+    folder = OUTPUT_DIR / "sheets" / f"{datetime.now():%Y%m%d_%H%M%S}_{safe_name(Path(sheet).stem)}"
+    cutout, _ = prepare_input(sheet, folder / "sheet_cutout.png", rembg_model)
+    try:
+        crops = split_sheet(Image.open(cutout))
+    except ValueError as exc:
+        raise gr.Error(str(exc)) from exc
+    slots = dict.fromkeys(SLOTS)
+    for name, crop in zip(names, crops):
+        if name in slots:
+            slots[name] = str(folder / f"{name}.png")
+            crop.save(slots[name])
+    note = f"Found {len(crops)} figure(s) on the sheet; assigned {sum(v is not None for v in slots.values())} view(s)."
+    if len(crops) != len(names):
+        note += f" The order lists {len(names)} name(s): check the views below."
+    return *slots.values(), note
+
+
 def _make_handlers(gen_controls, ref_controls):
     n_gen, n_ref = len(gen_controls), len(ref_controls)
 
-    def run_batch(files, generator, refiner, seed, randomize, rembg_model, *values):
-        if not files:
-            raise gr.Error("Upload at least one image.")
+    def run_batch(mode, files, sheet, front, left, back, right, generator, refiner, seed, randomize,
+                  rembg_model, *values):
         gen_values, ref_values, print_values = values[:n_gen], values[n_gen:n_gen + n_ref], values[n_gen + n_ref:]
         refiner = None if refiner == NO_REFINER else refiner
         settings = _print_settings(*print_values)
         gen_params = _collect(gen_controls, gen_values, generator)
         ref_params = _collect(ref_controls, ref_values, refiner)
 
-        reports, downloads, preview, lines = {}, [], None, []
-        for index, file in enumerate(files, start=1):
-            path = Path(file if isinstance(file, str) else file.name)
-            job = Job(
-                image=path, generator=generator, refiner=refiner,
+        def make_job(image: Path, **extra) -> Job:
+            return Job(
+                image=image, generator=generator, refiner=refiner,
                 seed=random.randint(0, 2**31 - 1) if randomize else int(seed),
                 gen_params=gen_params, ref_params=ref_params,
-                print_settings=settings, rembg_model=rembg_model,
+                print_settings=settings, rembg_model=rembg_model, **extra,
             )
+
+        if mode == "multiview":
+            views = {slot: Path(p) for slot, p in zip(SLOTS, (front, left, back, right)) if p}
+            if "front" not in views:
+                raise gr.Error("Add at least the front view (Split the sheet, or upload views into the slots).")
+            name = safe_name(Path(sheet).stem) if sheet else ""
+            jobs = [(Path(sheet).name if sheet else "turnaround", make_job(views["front"], name=name, views=views))]
+        else:
+            if not files:
+                raise gr.Error("Upload at least one image.")
+            paths = [Path(f if isinstance(f, str) else f.name) for f in files]
+            jobs = [(path.name, make_job(path)) for path in paths]
+
+        reports, downloads, preview, lines = {}, [], None, []
+        for index, (label, job) in enumerate(jobs, start=1):
             state = {"status": "Queued", "result": None, "error": None}
 
             def work(job=job, state=state):
@@ -124,13 +167,13 @@ def _make_handlers(gen_controls, ref_controls):
             started = time.time()
             thread.start()
             while thread.is_alive():
-                header = f"**{index}/{len(files)} · {path.name}** · {state['status']} · {time.time() - started:.0f}s"
+                header = f"**{index}/{len(jobs)} · {label}** · {state['status']} · {time.time() - started:.0f}s"
                 # Regular yields also keep the RunPod proxy connection alive on long jobs.
                 yield gr.skip(), "\n\n".join([*lines, header]), gr.skip(), gr.skip(), WORKERS.tail(WORKERS.current)
                 thread.join(timeout=1.5)
 
             if state["error"] is not None:
-                lines.append(f"❌ **{path.name}** failed after {time.time() - started:.0f}s: `{state['error']}`")
+                lines.append(f"❌ **{label}** failed after {time.time() - started:.0f}s: `{state['error']}`")
                 continue
             result = state["result"]
             reports[result.record["name"]] = result.report.as_dict()
@@ -139,7 +182,7 @@ def _make_handlers(gen_controls, ref_controls):
             watertight = "watertight" if result.report.watertight else "⚠ not watertight"
             size = " × ".join(f"{v:.1f}" for v in result.report.size_mm)
             lines.append(
-                f"✅ **{path.name}** · {time.time() - started:.0f}s · {result.report.faces:,} faces · "
+                f"✅ **{label}** · {time.time() - started:.0f}s · {result.report.faces:,} faces · "
                 f"{size} mm · {watertight} · seed {job.seed}"
             )
 
@@ -192,20 +235,40 @@ def build() -> gr.Blocks:
     generators, refiners = CONFIG["generators"], CONFIG["refiners"]
     defaults = CONFIG["print"]["defaults"]
     face_labels = {v: k for k, v in CONFIG["print"]["faces"].items()}
-    default_gen = next(iter(generators))
+    default_gen = _generator_choices("single")[0][1]
 
     with gr.Blocks(title="Image to Miniature") as demo:
         gr.Markdown("## Image → printable miniature\nUpload character art, pick a model, download STL/3MF.")
         with gr.Tab("Generate"):
             with gr.Row():
                 with gr.Column(scale=1, min_width=360):
-                    images = gr.File(
-                        label="Images (PNG with transparency is used as-is; several = batch)",
-                        file_count="multiple", file_types=["image"],
+                    mode = gr.Radio(
+                        [("Single images", "single"), ("Turnaround sheet", "multiview")],
+                        value="single", label="Input",
                     )
-                    generator = gr.Dropdown(
-                        [(g["label"], k) for k, g in generators.items()], value=default_gen, label="Generator"
-                    )
+                    with gr.Group(visible=True) as single_group:
+                        images = gr.File(
+                            label="Images (PNG with transparency is used as-is; several = batch)",
+                            file_count="multiple", file_types=["image"],
+                        )
+                    with gr.Group(visible=False) as multiview_group:
+                        sheet = gr.Image(label="Turnaround sheet (figures side by side)", type="filepath",
+                                         image_mode="RGBA", format="png", height=240)
+                        order = gr.Textbox(
+                            value="front, left, back, right",
+                            label="Views on the sheet, left to right",
+                            info="front / left / back / right, or skip (e.g. for a 3/4 view). "
+                                 "left = the figure faces left on the page.",
+                        )
+                        split = gr.Button("Split sheet into views")
+                        split_note = gr.Markdown()
+                        with gr.Row():
+                            view_slots = [
+                                gr.Image(label=SLOT_LABELS[slot], type="filepath", image_mode="RGBA",
+                                         format="png", height=180, min_width=120)
+                                for slot in SLOTS
+                            ]
+                    generator = gr.Dropdown(_generator_choices("single"), value=default_gen, label="Generator")
                     gen_groups, gen_controls = _model_panels(generators, default_gen)
                     refiner = gr.Dropdown(
                         [("None", NO_REFINER)] + [(r["label"], k) for k, r in refiners.items()],
@@ -272,11 +335,18 @@ def build() -> gr.Blocks:
                     history_view = gr.Model3D(label="Preview", height=480, **VIEWER_STYLE)
                     history_record = gr.JSON(label="Run record")
 
+        def switch_mode(selected: str):
+            choices = _generator_choices(selected)
+            return (gr.update(visible=selected == "single"), gr.update(visible=selected == "multiview"),
+                    gr.update(choices=choices, value=choices[0][1] if choices else None))
+
+        mode.change(switch_mode, mode, [single_group, multiview_group, generator])
+        split.click(_split_sheet, [sheet, order, rembg_model], [*view_slots, split_note])
         generator.change(lambda key: [gr.update(visible=k == key) for k in gen_groups], generator, list(gen_groups.values()))
         refiner.change(lambda key: [gr.update(visible=k == key) for k in ref_groups], refiner, list(ref_groups.values()))
         run.click(
             _make_handlers(gen_controls, ref_controls),
-            inputs=[images, generator, refiner, seed, randomize, rembg_model,
+            inputs=[mode, images, sheet, *view_slots, generator, refiner, seed, randomize, rembg_model,
                     *[c for *_, c in gen_controls], *[c for *_, c in ref_controls], *print_inputs],
             outputs=[viewer, status, report, downloads, log],
         )
