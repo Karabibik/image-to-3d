@@ -6,21 +6,12 @@ import numpy as np
 from PIL import Image
 
 # View slots, named by what the picture shows. Hunyuan3D-2mv's view keys use the same names:
-# its upstream example "left" image shows the figure's left side, facing image-left, which is
-# also what Pixal3D's camera at azimuth 90 sees (camera on +X, figure facing -Y, Z up).
+# its upstream example "left" image shows the figure's left side, facing image-left.
 SLOTS = ("front", "left", "back", "right")
-SLOT_LABELS = {
-    "front": "Front",
-    "left": "Left side (figure faces left on the page)",
-    "back": "Back",
-    "right": "Right side (figure faces right on the page)",
-}
-# Camera azimuth per slot, counter-clockwise seen from above, front camera at 0.
-AZIMUTH_DEG = {"front": 0, "left": 90, "back": 180, "right": 270}
+SLOT_LABELS = {"front": "Front", "left": "Left side", "back": "Back", "right": "Right side"}
 
 ALPHA_THRESHOLD = 16
-# Pixal3D's training renders fit the object's unit box into a 20 degree view from 3.12 units,
-# i.e. its longest side spans ~91% of the frame.
+# Share of the canvas the figure's longest side spans.
 FRAME_FILL = 0.9
 
 
@@ -93,19 +84,3 @@ def align_views(views: dict[str, Image.Image], size: int = 1024) -> dict[str, Im
         canvas.paste(crop.resize((w, h), Image.Resampling.LANCZOS), ((size - w) // 2, (size - h) // 2))
         framed[slot] = canvas
     return framed
-
-
-def camera_to_world(slot: str, distance: float, elevation_deg: float = 0.0) -> list[list[float]]:
-    """Blender/NeRF camera-to-world matrix of a slot's camera (Z-up, looking at the origin).
-
-    `elevation_deg` raises every camera above the figure's mid-height, as when a figure is
-    drawn or rendered from slightly above.
-    """
-    a, e = np.radians(AZIMUTH_DEG[slot]), np.radians(elevation_deg)
-    position = distance * np.array([np.cos(e) * np.sin(a), -np.cos(e) * np.cos(a), np.sin(e)])
-    back = position / distance  # the camera looks down its -Z axis
-    right = np.array([np.cos(a), np.sin(a), 0.0])
-    up = np.cross(back, right)
-    matrix = np.eye(4)
-    matrix[:3, 0], matrix[:3, 1], matrix[:3, 2], matrix[:3, 3] = right, up, back, position
-    return np.round(matrix, 12).tolist()

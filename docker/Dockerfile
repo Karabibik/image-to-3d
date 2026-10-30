@@ -2,10 +2,10 @@
 #
 # Image-to-miniature RunPod pod image.
 #
-#   /opt/venvs/<model>  one venv per model family (Hunyuan3D 2.1, UltraShape, TRELLIS.2,
-#                       Pixal3D, Hi3D), layered over two shared torch stacks
+#   /opt/venvs/<model>  one venv per model family (Hunyuan3D, UltraShape, Hi3D), layered
+#                       over one shared torch stack
 #   /opt/models/<repo>  upstream code, pinned to exact commits by scripts/build/*.sh
-#   /opt/app            this repo's UI (port 7860) and model workers (127.0.0.1:7871-7875)
+#   /opt/app            this repo's UI (port 7860) and model workers (127.0.0.1:7871-7876)
 #   /workspace          pod volume: HF weights cache, outputs, logs (nothing baked here)
 #
 # Model weights are not baked in; they download on first use or via PREFETCH_MODELS.
@@ -40,8 +40,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY scripts/build/lib.sh scripts/build/install_torch.sh /opt/build/
-RUN bash /opt/build/install_torch.sh py310
-RUN bash /opt/build/install_torch.sh py311
+RUN bash /opt/build/install_torch.sh
 
 # One layer per model family, so changing one pin only rebuilds that layer onwards.
 COPY envs/hunyuan.txt /opt/build/envs/
@@ -51,10 +50,6 @@ RUN bash /opt/build/install_hunyuan.sh
 COPY envs/ultrashape.txt /opt/build/envs/
 COPY scripts/build/install_ultrashape.sh /opt/build/
 RUN bash /opt/build/install_ultrashape.sh
-
-COPY envs/trellis.txt envs/pixal3d.txt /opt/build/envs/
-COPY scripts/build/install_trellis.sh /opt/build/
-RUN bash /opt/build/install_trellis.sh
 
 COPY scripts/build/install_hi3d.sh /opt/build/
 RUN bash /opt/build/install_hi3d.sh

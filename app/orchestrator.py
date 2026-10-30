@@ -217,7 +217,7 @@ class Runner:
             record["refiner"]["info"] = result.get("info", {})
 
         status("Preparing for print")
-        settings = self._model_print_settings(job.print_settings, job.generator, up, job.gen_params)
+        settings = replace(job.print_settings, source_up=up)
         report = prepare(mesh_path, run_dir / job.name, settings)
         record.update(final_mesh=mesh_path, print_settings=asdict(settings), report=report.as_dict())
         (run_dir / "run.json").write_text(json.dumps(record, indent=2), encoding="utf-8")
@@ -239,22 +239,10 @@ class Runner:
             image.save(paths[slot])
         return paths
 
-    def _model_print_settings(self, settings: PrintSettings, generator: str, up: str, params: dict) -> PrintSettings:
-        """Add the generator's facing and levelling corrections (refiners keep their input's pose)."""
-        spec = self.config["generators"].get(generator, {})
-        turn = spec.get("rotate_z", 0)
-        # rotate_x runs before rotate_z in print prep; for the generators that set level_param
-        # (Pixal3D's frame, turned 180 degrees) +elevation stands the figure back up.
-        tilt = float(params.get(spec["level_param"], 0)) if "level_param" in spec else 0.0
-        return replace(settings, source_up=up, rotate_x_deg=settings.rotate_x_deg + tilt,
-                       rotate_z_deg=(settings.rotate_z_deg + turn) % 360)
-
     def reprint(self, run_dir: Path, settings: PrintSettings) -> PrintReport:
         """Repeat print prep on a finished run's mesh, e.g. at another height or face budget."""
         record = json.loads((Path(run_dir) / "run.json").read_text(encoding="utf-8"))
-        up = record.get("print_settings", {}).get("source_up", "y")
-        settings = self._model_print_settings(settings, record["generator"]["key"], up,
-                                              record["generator"].get("params", {}))
+        settings = replace(settings, source_up=record.get("print_settings", {}).get("source_up", "y"))
         faces = f"{settings.target_faces // 1000}k" if settings.target_faces else "full"
         height = f"{settings.target_height_mm:g}mm" if settings.target_height_mm else "native"
         stem = Path(run_dir) / f"{record['name']}_{height}_{faces}"

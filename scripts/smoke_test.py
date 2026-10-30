@@ -1,7 +1,7 @@
 """On-pod smoke test: run every pipeline on one image and record time, VRAM and mesh health.
 
 Usage (inside the pod):
-    /opt/venvs/ui/bin/python scripts/smoke_test.py /workspace/test.png [--only hunyuan trellis ...]
+    /opt/venvs/ui/bin/python scripts/smoke_test.py /workspace/test.png [--only hunyuan ultrashape ...]
         [--views /workspace/views]   # front.png, left.png, back.png, right.png (any, front required)
 
 Multi-view pipelines run only with --views.
@@ -27,15 +27,11 @@ from app.printprep import PrintSettings  # noqa: E402
 PIPELINES = [
     ("hunyuan", None, {}, {}),
     ("hunyuan", "ultrashape", {}, {}),
-    ("trellis", None, {"resolution": "1024"}, {}),
-    ("trellis", None, {"resolution": "1536"}, {}),
-    ("pixal3d", None, {"resolution": "1536"}, {}),
     ("hunyuan", "hi3d", {}, {"resolution": "1024"}),
     ("hunyuan", "hi3d", {}, {"resolution": "1536"}),
     ("hunyuan2mv", None, {}, {}),
     ("hunyuan2mv", None, {"variant": "turbo", "steps": 5}, {}),
     ("hunyuan2mv", "ultrashape", {}, {}),
-    ("pixal3d_mv", None, {"resolution": "1536"}, {}),
 ]
 
 

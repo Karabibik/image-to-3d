@@ -1,6 +1,6 @@
 """Download model weights ahead of first use.
 
-Usage: python -m app.prefetch hunyuan trellis   (or "all")
+Usage: python -m app.prefetch hunyuan ultrashape   (or "all")
 """
 
 from __future__ import annotations

@@ -36,8 +36,8 @@ class PrintSettings:
     target_height_mm: float | None = 32.0
     # Cut this many millimetres off the bottom so the base sits flat; 0 disables.
     flatten_base_mm: float = 0.0
-    # Signed voxel remesh (cell in output units) when the mesh is still not watertight after
-    # repair, e.g. TRELLIS.2/Pixal3D output. Smooths detail finer than the cell.
+    # Solid rebuild (cell in output units) when the mesh is still not watertight after repair,
+    # e.g. Hi3D output. Smooths detail finer than the cell.
     remesh_if_open: bool = True
     remesh_cell_mm: float = 0.05
     # Face budget after decimation; None or 0 keeps every face (capped after a remesh).
@@ -154,7 +154,7 @@ def repair(mesh: trimesh.Trimesh, max_hole_edges: int, report: PrintReport) -> t
     nonmanifold = nonmanifold_edge_count(mesh)
     if nonmanifold:
         # Meshlab's non-manifold repair deletes faces and scrambles the (consistent) winding
-        # of such meshes (TRELLIS.2/Pixal3D output); solidify() handles them.
+        # of such meshes; solidify() handles them.
         log.info("%d non-manifold edges: surface repair skipped", nonmanifold)
         return mesh
     ms = _to_meshset(mesh)
@@ -261,8 +261,8 @@ def _enclosed_cells(wall: np.ndarray) -> np.ndarray:
 def solidify(mesh: trimesh.Trimesh, cell: float) -> trimesh.Trimesh:
     """Rebuild any surface as a closed solid, ignoring its winding and closure.
 
-    TRELLIS.2/Pixal3D surfaces have no inside or outside: they are open, non-manifold and
-    wound both ways, so nothing signed (repair, signed distance, winding numbers) works.
+    An open, non-manifold surface wound both ways has no inside or outside, so nothing
+    signed (repair, signed distance, winding numbers) works.
     Here the surface is only a set of voxel walls. A cell behind a hole sees out in a few
     directions and a real concavity in many, which tells the two apart ("ray stabbing",
     Nooruddin & Turk 2003). The interior found that way plugs the holes, then a flood fill
@@ -344,8 +344,8 @@ def prepare(src: str | Path, out_stem: str | Path, settings: PrintSettings | Non
     if settings.remesh_if_open and not mesh.is_watertight:
         mesh = solidify(mesh, settings.remesh_cell_mm)
         report.remeshed = True
-    # After closing: an open surface is in thousands of fragments, so before that a real
-    # part (TRELLIS.2 once lost a pick's head) can look like a floater.
+    # After closing: an open surface can be in thousands of fragments, so before that a real
+    # part (such as a pick's head) can look like a floater.
     mesh, report.parts_removed = remove_small_parts(mesh, settings.min_component_ratio)
     scale_and_place(mesh, height)
 

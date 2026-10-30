@@ -75,7 +75,7 @@ def test_flatten_base_gives_flat_bottom(tmp_path):
 
 
 def test_nonmanifold_input_is_remeshed_not_flipped(tmp_path):
-    # A duplicated face makes three edges non-manifold, like TRELLIS.2 output. The old
+    # A duplicated face makes three edges non-manifold, as in messy generated meshes. The old
     # repair path deleted faces and flipped patches inside-out; now it must be remeshed.
     box = trimesh.creation.box(extents=[1.0, 0.6, 2.0])
     faces = np.vstack([box.faces, box.faces[:1]])
@@ -94,7 +94,7 @@ def test_nonmanifold_input_is_remeshed_not_flipped(tmp_path):
 
 
 def _scrambled_shell() -> trimesh.Trimesh:
-    """An unoriented open shell like TRELLIS.2/Pixal3D output: holes, faces wound at random."""
+    """An unoriented open shell: holes, faces wound at random."""
     sphere = trimesh.creation.icosphere(subdivisions=5, radius=10.0)
     # Two holes 44% of the diameter wide. Holes of 60% still give a closed solid, with deep dents.
     keep = (sphere.triangles_center[:, 2] < 9.0) & (sphere.triangles_center[:, 0] < 9.0)
@@ -152,7 +152,7 @@ def test_open_shell_prints_solid(tmp_path):
 
 
 def test_fragmented_surface_keeps_small_real_parts(tmp_path):
-    # TRELLIS.2's surface is many fragments, so a small part next to the body must survive
+    # An open surface can be many fragments, so a small part next to the body must survive
     # until solidify() has joined them; only then is a floater really a floater.
     body = _scrambled_shell()
     handle = trimesh.creation.box(extents=[1.5, 1.5, 6.0]).subdivide().subdivide()
@@ -173,7 +173,7 @@ def test_fragmented_surface_keeps_small_real_parts(tmp_path):
 
 def test_hollow_shell_is_flagged(tmp_path, figure_glb):
     # One connected, watertight thin-walled box (a tunnel joins the cavity to the outside),
-    # like the double-skinned meshes TRELLIS.2's narrow-band remesh produces.
+    # like the double-skinned meshes a narrow-band remesh produces.
     outer = trimesh.creation.box(extents=[1.0, 1.0, 1.0])
     cavity = trimesh.creation.box(extents=[0.99, 0.99, 0.99])
     tunnel = trimesh.creation.cylinder(radius=0.05, height=0.6, sections=24)

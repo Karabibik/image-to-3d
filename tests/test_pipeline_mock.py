@@ -61,15 +61,12 @@ def test_turnaround_views_are_cut_out_framed_and_recorded(runner, cutout, tmp_pa
     side_path = tmp_path / "side.png"
     side.save(side_path)
     views = {"front": cutout, "left": side_path}
-    job = Job(cutout, "pixal3d_mv", "ultrashape", 2, {"elevation": 20}, {}, PrintSettings(target_faces=2000),
+    job = Job(cutout, "hunyuan2mv", "ultrashape", 2, {}, {}, PrintSettings(target_faces=2000),
               "u2net", name="Sheet", views=views)
     result = runner.run(job)
 
-    assert result.run_dir.name.endswith("_Sheet_pixal3d_mv+ultrashape_s2")
+    assert result.run_dir.name.endswith("_Sheet_hunyuan2mv+ultrashape_s2")
     assert result.record["views"] == {slot: str(result.run_dir / f"view_{slot}.png") for slot in views}
-    assert result.record["print_settings"]["rotate_z_deg"] == 180  # pixal3d_mv's facing turn
-    assert result.record["print_settings"]["rotate_x_deg"] == 20  # levelled by the camera elevation
-    runner.reprint(result.run_dir, PrintSettings(target_faces=2000))  # reprint reads the elevation back
     framed = {slot: Image.open(result.run_dir / f"view_{slot}.png") for slot in views}
     heights = []
     for image in framed.values():
@@ -90,15 +87,6 @@ def test_view_jobs_need_a_multiview_generator_and_a_front(runner, cutout):
         runner.run(Job(cutout, "hunyuan2mv", None, 1, {}, {}, settings, "u2net"))
 
 
-def test_generator_facing_correction_applies_to_runs_and_reprints(runner, cutout):
-    settings = PrintSettings(target_faces=2000, rotate_z_deg=90)
-    result = runner.run(Job(cutout, "pixal3d", "hi3d", 3, {}, {}, settings, "u2net"))
-    assert result.record["print_settings"]["rotate_z_deg"] == 270  # user's 90 + Pixal3D's 180
-    plain = runner.run(Job(cutout, "hunyuan", None, 3, {}, {}, settings, "u2net"))
-    assert plain.record["print_settings"]["rotate_z_deg"] == 90
-    runner.reprint(result.run_dir, PrintSettings(target_faces=2000))  # must not raise or drop the turn
-
-
 def test_identical_jobs_get_separate_run_dirs(runner, cutout):
     settings = PrintSettings(target_faces=2000)
     first = runner.run(Job(cutout, "hunyuan", None, 5, {}, {}, settings, "u2net"))
@@ -108,9 +96,9 @@ def test_identical_jobs_get_separate_run_dirs(runner, cutout):
 
 def test_switching_models_restarts_worker(runner, cutout):
     settings = PrintSettings(target_faces=2000)
-    runner.run(Job(cutout, "trellis", None, 1, {}, {}, settings, "u2net"))
+    runner.run(Job(cutout, "hunyuan", None, 1, {}, {}, settings, "u2net"))
     first = runner.workers._proc
-    runner.run(Job(cutout, "trellis", None, 2, {}, {}, settings, "u2net"))
+    runner.run(Job(cutout, "hunyuan", None, 2, {}, {}, settings, "u2net"))
     assert runner.workers._proc is first  # same model: worker stays warm
-    runner.run(Job(cutout, "pixal3d", None, 3, {}, {}, settings, "u2net"))
-    assert runner.workers.current == "pixal3d" and first.poll() is not None
+    runner.run(Job(cutout, "hunyuan2mv", None, 3, {}, {}, settings, "u2net", views={"front": cutout}))
+    assert runner.workers.current == "hunyuan2mv" and first.poll() is not None

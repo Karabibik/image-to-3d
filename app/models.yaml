@@ -6,10 +6,6 @@
 #          to the worker unchanged. `advanced: true` puts a control in a collapsed panel.
 # input: "multiview" for generators that take turnaround views instead of one image.
 # up: up axis of the mesh the model writes (all write glTF, which is Y-up).
-# rotate_z: extra turn (degrees) so a generator's output faces front; refiners keep the
-#           orientation of their input, so only generators set it.
-# level_param: a camera-elevation param (degrees) that print prep tilts the mesh back by,
-#           for generators that build the mesh in the front camera's frame.
 
 #
 # prefetch: Hugging Face repos `python -m app.prefetch <worker...>` downloads ahead of
@@ -42,26 +38,6 @@ workers:
     prefetch:
       - {repo: infinith/UltraShape, allow: ["ultrashape_v1.pt"]}
       - {repo: facebook/dinov2-large, <<: *safetensors_only}
-  trellis:
-    python: /opt/venvs/trellis/bin/python
-    script: workers/trellis_worker.py
-    root: /opt/models/TRELLIS.2
-    port: 7873
-    prefetch:
-      - {repo: microsoft/TRELLIS.2-4B}
-      - {repo: microsoft/TRELLIS-image-large, allow: ["ckpts/ss_dec_conv3d_16l8_fp16.*"]}
-      - {repo: camenduru/dinov3-vitl16-pretrain-lvd1689m}
-      - {repo: ZhengPeng7/BiRefNet}
-  pixal3d:
-    python: /opt/venvs/pixal3d/bin/python
-    script: workers/pixal3d_worker.py
-    root: /opt/models/Pixal3D
-    port: 7874
-    prefetch:
-      - {repo: TencentARC/Pixal3D, ignore: ["*_mv.*"]}
-      - {repo: camenduru/dinov3-vitl16-pretrain-lvd1689m}
-      - {repo: Ruicheng/moge-2-vitl}
-      - {repo: ZhengPeng7/BiRefNet}
   hi3d:
     python: /opt/venvs/hi3d/bin/python
     script: workers/hi3d_worker.py
@@ -86,31 +62,6 @@ generators:
       guidance_scale: {type: float, default: 5.0, min: 1.0, max: 15.0, step: 0.5, label: Guidance scale}
       octree_resolution: {type: int, default: 384, min: 256, max: 512, step: 32, label: Mesh grid resolution, info: Higher keeps finer detail; 512 needs more VRAM}
       num_chunks: {type: int, default: 200000, min: 20000, max: 1000000, step: 20000, label: Decode chunk size, advanced: true}
-  trellis:
-    label: TRELLIS.2
-    worker: trellis
-    up: y
-    notes: Strongest open model on 3D Arena; good with sharp edges and thin parts. 9.9 GB VRAM at 1024 (A40); 1536 is slow. Print prep rebuilds its open surface as a solid.
-    params:
-      resolution: {type: choice, choices: ["512", "1024", "1536"], default: "1024", label: Resolution}
-      ss_steps: {type: int, default: 12, min: 4, max: 50, step: 1, label: Structure steps, advanced: true}
-      ss_guidance_strength: {type: float, default: 7.5, min: 1.0, max: 10.0, step: 0.1, label: Structure guidance, advanced: true}
-      shape_steps: {type: int, default: 12, min: 4, max: 50, step: 1, label: Shape steps, advanced: true}
-      shape_guidance_strength: {type: float, default: 7.5, min: 1.0, max: 10.0, step: 0.1, label: Shape guidance, advanced: true}
-      decimation_target: {type: int, default: 1000000, min: 100000, max: 2000000, step: 100000, label: Faces kept by the exporter, advanced: true}
-  pixal3d:
-    label: Pixal3D
-    worker: pixal3d
-    up: y
-    # Its exported GLB faces away from the viewer; print prep turns it around.
-    rotate_z: 180
-    notes: Pixel-aligned, so it follows the artwork most closely. 35 GB VRAM at 1536 (A40); low-VRAM mode for smaller cards. Print prep rebuilds its open surface as a solid.
-    params:
-      resolution: {type: choice, choices: ["1024", "1536"], default: "1536", label: Resolution}
-      fov: {type: float, default: -1.0, min: -1.0, max: 1.0, step: 0.05, label: Camera FOV (radians), info: -1 estimates it with MoGe-2; try 0.2 if the result looks stretched}
-      low_vram: {type: bool, default: false, label: Low-VRAM mode}
-      ss_steps: {type: int, default: 12, min: 4, max: 50, step: 1, label: Structure steps, advanced: true}
-      shape_steps: {type: int, default: 12, min: 4, max: 50, step: 1, label: Shape steps, advanced: true}
   # Turnaround-sheet generators (input: multiview) get {slot: image} views; the front is required.
   hunyuan2mv:
     label: Hunyuan3D-2mv
@@ -124,21 +75,6 @@ generators:
       guidance_scale: {type: float, default: 5.0, min: 1.0, max: 15.0, step: 0.5, label: Guidance scale}
       octree_resolution: {type: int, default: 384, min: 256, max: 512, step: 32, label: Mesh grid resolution}
       num_chunks: {type: int, default: 200000, min: 20000, max: 1000000, step: 20000, label: Decode chunk size, advanced: true}
-  pixal3d_mv:
-    label: Pixal3D multi-view (experimental)
-    worker: pixal3d
-    input: multiview
-    up: y
-    rotate_z: 180
-    level_param: elevation
-    notes: Pixel-aligned to every view, so it needs exact cameras at 0/90/180/270 degrees and the true elevation. On painted-mini renders it came out rough with a distorted base, so prefer Hunyuan3D-2mv. 42 GB VRAM at 1536 on an A40. First use downloads ~22 GB. Print prep rebuilds its open surface as a solid.
-    params:
-      resolution: {type: choice, choices: ["1024", "1536"], default: "1536", label: Resolution}
-      elevation: {type: float, default: 0, min: -10, max: 45, step: 1, label: Camera elevation (degrees), info: "How far above the figure the views were drawn or rendered from (0 = eye level; renders showing the top of the base are often 20-30). Print prep stands the result back up."}
-      low_vram: {type: bool, default: false, label: Low-VRAM mode}
-      ss_steps: {type: int, default: 12, min: 4, max: 50, step: 1, label: Structure steps, advanced: true}
-      shape_steps: {type: int, default: 12, min: 4, max: 50, step: 1, label: Shape steps, advanced: true}
-
 refiners:
   ultrashape:
     label: UltraShape 1.0
@@ -155,7 +91,7 @@ refiners:
     label: Hi3D v1.0 (experimental)
     worker: hi3d
     up: y
-    notes: Geometry refiner up to 1536. Released Oct 2026; 1536 was only validated on a 96 GB GPU, so use an 80 GB card or CPU offload.
+    notes: Geometry refiner up to 1536. 20 GB VRAM at 1024 on an A40, so use CPU offload on smaller cards. 1536 was only validated on a 96 GB GPU. Print prep rebuilds its open surface as a solid.
     params:
       resolution: {type: choice, choices: ["512", "1024", "1536"], default: "1024", label: Resolution}
       steps: {type: int, default: 25, min: 10, max: 50, step: 1, label: Steps per pass}

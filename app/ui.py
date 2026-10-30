@@ -262,12 +262,16 @@ def build() -> gr.Blocks:
                         )
                         split = gr.Button("Split sheet into views")
                         split_note = gr.Markdown()
-                        with gr.Row():
-                            view_slots = [
-                                gr.Image(label=SLOT_LABELS[slot], type="filepath", image_mode="RGBA",
-                                         format="png", height=180, min_width=120)
-                                for slot in SLOTS
-                            ]
+                        gr.Markdown("Or drop each view into its slot. *Left side* means the figure faces left "
+                                    "on the page, *right side* the opposite. Only the front is required.")
+                        view_slots = []
+                        for pair in (SLOTS[:2], SLOTS[2:]):
+                            with gr.Row():
+                                view_slots += [
+                                    gr.Image(label=SLOT_LABELS[slot], type="filepath", image_mode="RGBA",
+                                             format="png", height=220, min_width=160)
+                                    for slot in pair
+                                ]
                     generator = gr.Dropdown(_generator_choices("single"), value=default_gen, label="Generator")
                     gen_groups, gen_controls = _model_panels(generators, default_gen)
                     refiner = gr.Dropdown(
@@ -299,7 +303,7 @@ def build() -> gr.Blocks:
                             rot_z = gr.Radio(ROTATIONS, value=0, label="Extra rotation around Z")
                             remesh = gr.Checkbox(
                                 value=defaults["remesh_if_open"],
-                                label="Rebuild as a solid if the mesh is not watertight (TRELLIS.2/Pixal3D need this; 1-2 minutes)",
+                                label="Rebuild as a solid if the mesh is not watertight (Hi3D needs this; 1-2 minutes)",
                             )
                             cell = gr.Slider(
                                 0.02, 0.3, value=defaults["remesh_cell_mm"], step=0.01, label="Solid rebuild voxel size (mm)"
@@ -313,6 +317,7 @@ def build() -> gr.Blocks:
 
                 with gr.Column(scale=2):
                     viewer = gr.Model3D(label="Print-ready mesh", height=560, **VIEWER_STYLE)
+                    preview = gr.State()
                     status = gr.Markdown()
                     downloads = gr.File(label="Downloads", file_count="multiple")
                     with gr.Accordion("Report", open=False):
@@ -348,8 +353,8 @@ def build() -> gr.Blocks:
             _make_handlers(gen_controls, ref_controls),
             inputs=[mode, images, sheet, *view_slots, generator, refiner, seed, randomize, rembg_model,
                     *[c for *_, c in gen_controls], *[c for *_, c in ref_controls], *print_inputs],
-            outputs=[viewer, status, report, downloads, log],
-        )
+            outputs=[preview, status, report, downloads, log],
+        ).then(lambda path: path, preview, viewer)  # Model3D stays blank if a generator feeds it
         refresh.click(lambda: gr.update(choices=_history_choices()), None, runs)
         demo.load(lambda: gr.update(choices=_history_choices()), None, runs)
         runs.change(_show_run, runs, [history_view, history_input, history_record, history_files])

@@ -1,17 +1,8 @@
 import numpy as np
 import pytest
-import trimesh
 from PIL import Image, ImageDraw
 
-from app.multiview import FRAME_FILL, align_views, camera_to_world, split_sheet
-
-# Pixal3D's assets/mv_images/example/transforms.json (distance 3.1192049980163574).
-PIXAL_EXAMPLE = {
-    "front": [[1, 0, 0, 0], [0, 0, -1, -3.1192049980163574], [0, 1, 0, 0], [0, 0, 0, 1]],
-    "left": [[0, 0, 1, 3.1192049980163574], [1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 0, 1]],
-    "back": [[-1, 0, 0, 0], [0, 0, 1, 3.1192049980163574], [0, 1, 0, 0], [0, 0, 0, 1]],
-    "right": [[0, 0, -1, -3.1192049980163574], [-1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 0, 1]],
-}
+from app.multiview import FRAME_FILL, align_views, split_sheet
 
 
 def _bbox(image: Image.Image) -> tuple[int, int, int, int]:
@@ -62,23 +53,3 @@ def test_wide_figures_fit_the_frame():
     ImageDraw.Draw(wide).rectangle((0, 0, 399, 99), fill=(0, 0, 0, 255))
     x0, y0, x1, y1 = _bbox(align_views({"front": wide}, size=256)["front"])
     assert x1 - x0 == pytest.approx(256 * FRAME_FILL, abs=2)
-
-
-@pytest.mark.parametrize("slot", PIXAL_EXAMPLE)
-def test_cameras_match_pixal3d_example(slot):
-    assert np.allclose(camera_to_world(slot, 3.1192049980163574), PIXAL_EXAMPLE[slot], atol=1e-9)
-
-
-@pytest.mark.parametrize("slot", PIXAL_EXAMPLE)
-def test_elevated_cameras_are_the_level_rig_tilted_about_x(slot):
-    # Raising a camera by e around the figure is a rotation of the level rig by -e about X
-    # for the front camera; every camera must stay orthonormal and look at the origin.
-    c2w = np.array(camera_to_world(slot, 2.0, elevation_deg=25))
-    rotation, position = c2w[:3, :3], c2w[:3, 3]
-    assert np.allclose(rotation.T @ rotation, np.eye(3), atol=1e-9) and np.linalg.det(rotation) > 0
-    assert np.allclose(-rotation[:, 2], -position / 2.0, atol=1e-9)  # looks at the origin
-    assert position[2] == pytest.approx(2.0 * np.sin(np.radians(25)))
-    if slot == "front":
-        tilt = np.eye(4)
-        tilt[:3, :3] = trimesh.transformations.rotation_matrix(np.radians(-25), [1, 0, 0])[:3, :3]
-        assert np.allclose(c2w, tilt @ np.array(camera_to_world("front", 2.0)), atol=1e-9)

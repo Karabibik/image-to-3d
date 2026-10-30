@@ -39,7 +39,7 @@ vpip() {
 
 # Verify distributions are installed (strict) and try loading the compiled extensions
 # they ship (warning only: load order between libraries can cause false failures),
-# without running package code (some packages, e.g. flex_gemm, need a live GPU at import).
+# without running package code (some packages need a live GPU at import).
 check_dists() {
     local name=$1; shift
     local stub
