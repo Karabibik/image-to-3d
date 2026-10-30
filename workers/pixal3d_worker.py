@@ -1,8 +1,8 @@
 """Pixal3D pixel-aligned image-to-3D, single-view and multi-view (turnaround sheets).
 
 Runs in /opt/venvs/pixal3d with the upstream repo at MODEL_ROOT. Calls the upstream
-inference.run_inference / inference_mv.run_inference so camera estimation (MoGe-2), view
-loading and GLB export stay identical; only pipeline loading is cached between jobs.
+inference.run_inference / inference_mv.run_inference so camera estimation (MoGe-2) and view
+loading stay identical; pipeline loading is cached and the export keeps only the geometry.
 """
 
 import json
@@ -17,18 +17,9 @@ import inference as pixal  # noqa: E402  (upstream inference.py; sets its own en
 import o_voxel  # noqa: E402
 
 from worker_common import cuda_memory_info, log, serve  # noqa: E402
+from worker_mesh import geometry_to_glb  # noqa: E402
 
-_upstream_to_glb = o_voxel.postprocess.to_glb
-
-
-def _to_glb_single_layer(*args, **kwargs):
-    # inference.py exports with remesh=True, whose narrow-band rebuild wraps every surface
-    # in an inner and outer skin (a hollow shell); keep the generated single-layer surface.
-    kwargs["remesh"] = False
-    return _upstream_to_glb(*args, **kwargs)
-
-
-o_voxel.postprocess.to_glb = _to_glb_single_layer
+o_voxel.postprocess.to_glb = geometry_to_glb
 from worker_hf import patched_pipeline_dir  # noqa: E402
 
 # Appended, not prepended, so nothing in app/ can shadow an upstream module.

@@ -299,10 +299,10 @@ def build() -> gr.Blocks:
                             rot_z = gr.Radio(ROTATIONS, value=0, label="Extra rotation around Z")
                             remesh = gr.Checkbox(
                                 value=defaults["remesh_if_open"],
-                                label="Voxel-remesh if the mesh is not watertight (TRELLIS.2/Pixal3D; adds a few minutes)",
+                                label="Rebuild as a solid if the mesh is not watertight (TRELLIS.2/Pixal3D need this; 1-2 minutes)",
                             )
                             cell = gr.Slider(
-                                0.02, 0.3, value=defaults["remesh_cell_mm"], step=0.01, label="Remesh voxel size (mm)"
+                                0.02, 0.3, value=defaults["remesh_cell_mm"], step=0.01, label="Solid rebuild voxel size (mm)"
                             )
                             formats = gr.CheckboxGroup(["stl", "3mf"], value=["stl", "3mf"], label="Formats")
                             rembg_model = gr.Dropdown(

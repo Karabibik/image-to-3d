@@ -1,7 +1,7 @@
 """TRELLIS.2 image-to-3D.
 
 Runs in /opt/venvs/trellis with the upstream repo at MODEL_ROOT. Mirrors the upstream
-app.py: sample with return_latent, then export through o_voxel.postprocess.to_glb.
+app.py up to the sampling; the export keeps only the geometry (see worker_mesh).
 """
 
 import os
@@ -18,6 +18,7 @@ from PIL import Image  # noqa: E402
 
 from worker_common import cuda_memory_info, log, serve  # noqa: E402
 from worker_hf import patched_pipeline_dir  # noqa: E402
+from worker_mesh import geometry_to_glb  # noqa: E402
 
 MODEL_ID = "microsoft/TRELLIS.2-4B"
 PIPELINE_TYPES = {"512": "512", "1024": "1024_cascade", "1536": "1536_cascade"}
@@ -41,12 +42,10 @@ def _sampler(params: dict, prefix: str, defaults: dict) -> dict:
 
 
 def generate(job: dict) -> dict:
-    import o_voxel
-
     params = job.get("params", {})
     pipeline = _get_pipeline()
     resolution = str(params.get("resolution", "1024"))
-    outputs, latents = pipeline.run(
+    outputs, _ = pipeline.run(
         Image.open(job["image"]),
         seed=int(job.get("seed", 0)),
         sparse_structure_sampler_params=_sampler(params, "ss", {"steps": 12, "guidance_strength": 7.5}),
@@ -57,24 +56,8 @@ def generate(job: dict) -> dict:
     )
     mesh = outputs[0]
     mesh.simplify(16777216)  # nvdiffrast limit, as upstream
-    _, _, grid_res = latents
-    glb = o_voxel.postprocess.to_glb(
-        vertices=mesh.vertices,
-        faces=mesh.faces,
-        attr_volume=mesh.attrs,
-        coords=mesh.coords,
-        attr_layout=pipeline.pbr_attr_layout,
-        grid_size=grid_res,
-        aabb=[[-0.5, -0.5, -0.5], [0.5, 0.5, 0.5]],
-        decimation_target=int(params.get("decimation_target", 1000000)),
-        texture_size=int(params.get("texture_size", 1024)),
-        # The upstream app's narrow-band remesh (remesh=True, project 0) wraps every surface
-        # in an inner and outer skin: a hollow, non-manifold shell that prints as a thin wall.
-        # Without it to_glb only simplifies and cleans the generated single-layer surface.
-        remesh=False,
-        use_tqdm=True,
-    )
-    glb.export(job["out"], extension_webp=True)
+    glb = geometry_to_glb(mesh.vertices, mesh.faces, int(params.get("decimation_target", 1000000)))
+    glb.export(job["out"])
     return {"mesh": job["out"], "info": {"resolution": resolution, **cuda_memory_info()}}
 
 

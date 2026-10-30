@@ -1,13 +1,14 @@
 """Turn a generated mesh into a print-ready model.
 
-Steps, in order: load geometry only, convert to Z-up, drop floaters, repair and close
-holes, scale to a target height in millimetres, optionally flatten the base, optionally
-voxel-remesh if the mesh is still open, decimate to a face budget, export STL/3MF plus
-a Y-up GLB for the browser preview.
+Steps, in order: load geometry only, convert to Z-up, repair and close holes, scale to a
+target height in millimetres, rebuild as a solid if the mesh is still open, drop floaters,
+optionally flatten the base, decimate to a face budget, export STL/3MF plus a Y-up GLB for
+the browser preview.
 """
 
 from __future__ import annotations
 
+import itertools
 import logging
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -15,6 +16,8 @@ from pathlib import Path
 import numpy as np
 import pymeshlab
 import trimesh
+from scipy import ndimage
+from skimage.measure import marching_cubes
 
 log = logging.getLogger(__name__)
 
@@ -42,10 +45,22 @@ class PrintSettings:
     formats: tuple[str, ...] = ("stl", "3mf")
 
 
-# A remesh at 0.05 mm yields ~10M faces for a 32 mm figure; "keep all" stops here instead.
+# solidify() at 0.05 mm yields 1-2M faces for a 32 mm figure; "keep all" stops here instead.
 REMESH_FACE_CAP = 1_000_000
 # Measured: solid minis fill ~10% of their bounding box, double-walled shells 0.5-1.3%.
 HOLLOW_FILL_RATIO = 0.03
+
+# solidify(): the longest side gets at most this many cells, which bounds memory on tall models.
+SOLID_MAX_CELLS = 900
+# The inside/outside test runs on a grid this many times coarser than the surface grid.
+SOLID_COARSE_FACTOR = 4
+# Enclosed means at most this many of the 26 grid directions see out. Measured: at 4 and
+# above, cells along the walls of a shallow bowl qualify and fill it from the corners; a real
+# cavity behind holes stays filled down to 1.
+SOLID_MAX_OPEN_DIRECTIONS = 2
+# Marching-cubes level on the blurred solid. Above 0.5 takes back part of the walls' one-cell
+# thickness; a uniform erosion instead would delete thin parts such as a figure's base.
+SOLID_LEVEL = 0.75
 
 
 @dataclass
@@ -139,8 +154,8 @@ def repair(mesh: trimesh.Trimesh, max_hole_edges: int, report: PrintReport) -> t
     nonmanifold = nonmanifold_edge_count(mesh)
     if nonmanifold:
         # Meshlab's non-manifold repair deletes faces and scrambles the (consistent) winding
-        # of such meshes (TRELLIS.2/Pixal3D output); the signed voxel remesh handles them.
-        report.warnings.append(f"{nonmanifold} non-manifold edges: surface repair skipped")
+        # of such meshes (TRELLIS.2/Pixal3D output); solidify() handles them.
+        log.info("%d non-manifold edges: surface repair skipped", nonmanifold)
         return mesh
     ms = _to_meshset(mesh)
     ms.meshing_remove_duplicate_vertices()
@@ -190,19 +205,93 @@ def flatten_base(mesh: trimesh.Trimesh, depth: float, report: PrintReport) -> tr
     return cut
 
 
-def voxel_remesh(mesh: trimesh.Trimesh, cell: float) -> trimesh.Trimesh:
-    """Rebuild the surface as the zero level of a signed distance field (needs consistent winding)."""
-    ms = _to_meshset(mesh)
-    ms.generate_resampled_uniform_mesh(
-        cellsize=pymeshlab.PureValue(cell),
-        offset=pymeshlab.PureValue(0.0),
-        mergeclosevert=True,
-        multisample=True,
-        absdist=False,
-    )
-    out = _from_meshset(ms)
-    if len(out.faces) == 0:
-        raise ValueError("voxel remesh produced an empty mesh")
+def _mark_surface(mesh: trimesh.Trimesh, origin: np.ndarray, cell: float, wall: np.ndarray) -> None:
+    """Set every cell of `wall` that the surface passes through (points at most half a cell apart)."""
+    tris = mesh.triangles
+    sides = tris - np.roll(tris, 1, axis=1)
+    longest = np.sqrt((sides ** 2).sum(axis=2)).max(axis=1)
+    steps = np.ceil(longest / (cell * 0.5)).astype(int).clip(1)
+    for n in np.unique(steps):
+        i, j = np.meshgrid(np.arange(n + 1), np.arange(n + 1), indexing="ij")
+        inside = i + j <= n
+        a, b = i[inside] / n, j[inside] / n
+        c = 1 - a - b
+        chosen = tris[steps == n]
+        for start in range(0, len(chosen), max(1, 2_000_000 // len(a))):
+            part = chosen[start:start + max(1, 2_000_000 // len(a))]
+            points = part[:, None, 0] * a[None, :, None] + part[:, None, 1] * b[None, :, None]                 + part[:, None, 2] * c[None, :, None]
+            index = ((points.reshape(-1, 3) - origin) / cell).astype(int)
+            wall[index[:, 0], index[:, 1], index[:, 2]] = True
+
+
+def _blocked_along(wall: np.ndarray, step: tuple[int, int, int]) -> np.ndarray:
+    """True where a ray from the cell along `step` hits `wall`, sweeping back from the far side."""
+    sweep = next(axis for axis in range(3) if step[axis])
+    du, dv = (step[axis] for axis in range(3) if axis != sweep)
+    walls = np.moveaxis(wall, sweep, 0)
+    blocked = np.zeros(walls.shape, dtype=bool)
+    layers = range(len(walls) - 2, -1, -1) if step[sweep] > 0 else range(1, len(walls))
+    for layer in layers:
+        ahead = layer + step[sweep]
+        seen = walls[ahead] | blocked[ahead]
+        h, w = seen.shape
+        # Cell (u, v) of this layer looks at (u + du, v + dv) of the layer ahead.
+        blocked[layer][max(-du, 0):h + min(-du, 0), max(-dv, 0):w + min(-dv, 0)] =             seen[max(du, 0):h + min(du, 0), max(dv, 0):w + min(dv, 0)]
+    return np.moveaxis(blocked, 0, sweep)
+
+
+def _enclosed_cells(wall: np.ndarray) -> np.ndarray:
+    """Cells that are not `wall` and see out in almost none of the 26 grid directions.
+
+    A cell that sees out both ways along any line is in a through-gap (between the legs, in
+    the loop of an arm on a hip), which stays open however narrow it is. Only cavities and
+    the bottoms of deep blind pits qualify, and a deep blind pit would only trap resin.
+    """
+    open_count = np.zeros(wall.shape, dtype=np.uint8)
+    through = np.zeros(wall.shape, dtype=bool)
+    for step in itertools.product((-1, 0, 1), repeat=3):
+        if step > (0, 0, 0):  # one of each opposite pair
+            forward = ~_blocked_along(wall, step)
+            backward = ~_blocked_along(wall, tuple(-c for c in step))
+            open_count += forward.astype(np.uint8) + backward
+            through |= forward & backward
+    return (open_count <= SOLID_MAX_OPEN_DIRECTIONS) & ~through & ~wall
+
+
+def solidify(mesh: trimesh.Trimesh, cell: float) -> trimesh.Trimesh:
+    """Rebuild any surface as a closed solid, ignoring its winding and closure.
+
+    TRELLIS.2/Pixal3D surfaces have no inside or outside: they are open, non-manifold and
+    wound both ways, so nothing signed (repair, signed distance, winding numbers) works.
+    Here the surface is only a set of voxel walls. A cell behind a hole sees out in a few
+    directions and a real concavity in many, which tells the two apart ("ray stabbing",
+    Nooruddin & Turk 2003). The interior found that way plugs the holes, then a flood fill
+    from outside finds the true exterior at full resolution; the rest is the solid.
+    """
+    cell = max(cell, float(mesh.extents.max()) / SOLID_MAX_CELLS)
+    margin = 2 * SOLID_COARSE_FACTOR
+    shape = (np.ceil(mesh.extents / cell / SOLID_COARSE_FACTOR).astype(int) + 5) * SOLID_COARSE_FACTOR
+    origin = mesh.bounds[0] - margin * cell
+    wall = np.zeros(shape, dtype=bool)
+    _mark_surface(mesh, origin, cell, wall)
+
+    f = SOLID_COARSE_FACTOR
+    coarse = wall.reshape(shape[0] // f, f, shape[1] // f, f, shape[2] // f, f).any(axis=(1, 3, 5))
+    interior = _enclosed_cells(coarse).repeat(f, 0).repeat(f, 1).repeat(f, 2)
+
+    # Grow the coarse interior up to the walls only, so it fills the gap behind the surface
+    # and plugs holes without bulging through them.
+    thick_wall = ndimage.binary_dilation(wall)
+    plug = ndimage.binary_dilation(interior, iterations=f + 1, mask=~thick_wall)
+    labels, _ = ndimage.label(~(thick_wall | plug))
+    solid = labels != labels[0, 0, 0]
+    del labels, plug, thick_wall, interior, wall
+
+    field_ = ndimage.gaussian_filter(solid.astype(np.float32), 1.0)
+    vertices, faces, _, _ = marching_cubes(field_, level=SOLID_LEVEL, spacing=(cell, cell, cell))
+    out = trimesh.Trimesh(vertices + origin + cell / 2, faces, process=False)  # samples are cell centres
+    if out.volume < 0:
+        out.invert()
     return out
 
 
@@ -244,23 +333,21 @@ def prepare(src: str | Path, out_stem: str | Path, settings: PrintSettings | Non
 
     mesh = load_geometry(src)
     orient(mesh, settings)
-    mesh, report.parts_removed = remove_small_parts(mesh, settings.min_component_ratio)
     mesh = repair(mesh, settings.close_holes_max_edges, report)
     # Scale with the flatten allowance included so the final height still hits the target.
     height = settings.target_height_mm
     if height and settings.flatten_base_mm > 0:
         height += settings.flatten_base_mm
-    scale_and_place(mesh, height)
+    scale_and_place(mesh, height)  # solidify() works in millimetres
 
-    # Remesh before flattening: capping the cut needs a closed cross-section.
+    # Before flattening: capping the cut needs a closed cross-section.
     if settings.remesh_if_open and not mesh.is_watertight:
-        mesh = voxel_remesh(mesh, settings.remesh_cell_mm)
+        mesh = solidify(mesh, settings.remesh_cell_mm)
         report.remeshed = True
-        if not mesh.is_watertight:
-            # Thin parts can leave a few open cells; the remesh output is manifold, so
-            # the ordinary repair (hole closing) is safe here.
-            mesh = repair(mesh, settings.close_holes_max_edges, report)
-        scale_and_place(mesh, None)
+    # After closing: an open surface is in thousands of fragments, so before that a real
+    # part (TRELLIS.2 once lost a pick's head) can look like a floater.
+    mesh, report.parts_removed = remove_small_parts(mesh, settings.min_component_ratio)
+    scale_and_place(mesh, height)
 
     if settings.flatten_base_mm > 0:
         mesh = flatten_base(mesh, settings.flatten_base_mm, report)
