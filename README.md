@@ -98,6 +98,7 @@ Choose **Turnaround** in the Image step when you have the same figure from sever
 The slots are named by what the picture shows. *Left* means the figure faces left on the page, so you see its left side; *right* is the opposite.
 Every view is cut out and framed at the same figure height before it reaches the model.
 The front is required; any of the other three can stay empty.
+Views must be straight-on. A 3/4 shot in a side slot adds ghost shapes, so leave that slot empty: on a flat relief, front + back alone was the cleanest result.
 
 The Shape step then uses **Hunyuan3D-2mv**, Hunyuan's multi-view shape model. It copes with views that are a little off,
 including renders from above, and gave accurate figures on painted-mini renders. Add **UltraShape** for the sharpest detail

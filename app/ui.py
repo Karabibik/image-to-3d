@@ -29,7 +29,9 @@ NO_REFINER = "none"
 ROTATIONS = [0, 90, 180, 270]
 # Every preview is one unit tall, so one camera distance frames them all, with room for a wide base.
 VIEWER_STYLE = {"display_mode": "solid", "clear_color": (0.15, 0.15, 0.17, 1.0), "camera_position": (None, 85, 1.8)}
-UPLOAD_STYLE = {"show_label": False, "type": "filepath", "image_mode": "RGBA", "format": "png", "sources": ["upload"]}
+# image_mode None passes the upload through untouched: converting it here fails on JPEGs, and
+# app.imageprep handles every format anyway.
+UPLOAD_STYLE = {"show_label": False, "type": "filepath", "image_mode": None, "format": "png", "sources": ["upload"]}
 THEME = gr.themes.Soft(
     primary_hue="indigo",
     neutral_hue="slate",
@@ -283,7 +285,8 @@ def build() -> gr.Blocks:
                         with gr.Column(visible=False) as turnaround_panel:
                             sheet = gr.Image(height=130, placeholder="Drop a sheet with the figures side by side",
                                              **UPLOAD_STYLE)
-                            gr.Markdown("Or one image per view. Only the front is required.", elem_classes="hint")
+                            gr.Markdown("Or one image per view. Only the front is required. Leave out 3/4 shots: "
+                                        "views must be straight-on.", elem_classes="hint")
                             with gr.Row():
                                 view_slots = [
                                     gr.Image(height=96, min_width=80, placeholder=slot.capitalize(), **UPLOAD_STYLE)
@@ -479,6 +482,8 @@ def main() -> None:
         theme=THEME,
         css_paths=CSS_PATH,
         footer_links=[],
+        # Failures before a step's code runs cannot reach the status line; without this they are silent.
+        show_error=True,
     )
 
 

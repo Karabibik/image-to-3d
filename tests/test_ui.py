@@ -2,6 +2,7 @@ from pathlib import Path
 
 import gradio as gr
 import pytest
+from gradio.components.image import ImageData
 from PIL import Image, ImageDraw
 
 from app import ui
@@ -65,6 +66,24 @@ def test_a_turnaround_sheet_becomes_framed_views(tmp_path, monkeypatch):
     assert [caption for _, caption in ui._gallery(session["prepared"])] == [
         ui.SLOT_LABELS[slot] for slot in session["prepared"].views
     ]
+
+
+@pytest.mark.parametrize("name, mode", [("art.jpg", "RGB"), ("art.png", "RGBA"), ("art.webp", "RGB"), ("art.png", "P")])
+def test_every_upload_box_takes_common_image_formats(tmp_path, name, mode):
+    path = tmp_path / name
+    Image.new(mode, (32, 32)).save(path)
+    uploads = [block for block in build().blocks.values() if isinstance(block, gr.Image)]
+    assert len(uploads) == 6  # one image, one sheet, four views
+    for upload in uploads:
+        assert upload.preprocess(ImageData(path=str(path), orig_name=name)) == str(path)
+
+
+def test_failures_before_a_step_starts_are_shown(monkeypatch, tmp_path):
+    options = {}
+    monkeypatch.setattr(gr.Blocks, "launch", lambda _self, **kwargs: options.update(kwargs))
+    monkeypatch.setattr(ui, "OUTPUT_DIR", tmp_path / "outputs")
+    ui.main()
+    assert options["show_error"] is True
 
 
 def test_every_model_has_a_hint():
