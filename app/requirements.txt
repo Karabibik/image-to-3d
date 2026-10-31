@@ -7,6 +7,7 @@ numpy==2.4.6
 trimesh==5.2.0
 pymeshlab==2025.7.post1
 manifold3d==3.5.4
+fast-simplification==0.2.0
 mapbox-earcut==2.1.0
 scipy==1.17.1
 scikit-image==0.26.0

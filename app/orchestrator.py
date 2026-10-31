@@ -299,7 +299,7 @@ class Runner:
         status("Reducing the mesh for painting")
         mesh_path = run_dir / "paint_input.obj"
         # Normalised like every other preview, so the viewer frames the painted model the same way.
-        make_preview(record["final_mesh"], mesh_path, self._up(record), int(params.get("faces", 40000)))
+        make_preview(record["final_mesh"], mesh_path, self._up(record), int(params.get("faces", 150_000)))
         status(f"Painting with {spec['label']}")
         result = self.workers.run(spec["worker"], {
             "task": "paint", "model": painter, "image": str(run_dir / "input.png"), "mesh": str(mesh_path),

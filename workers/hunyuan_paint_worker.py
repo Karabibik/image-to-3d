@@ -47,7 +47,7 @@ def paint(job: dict) -> dict:
 
     params = job.get("params", {})
     obj_path = os.path.join(os.path.dirname(job["out"]), "textured.obj")
-    pipeline = _get_pipeline(int(params.get("max_num_view", 6)), int(params.get("resolution", 512)))
+    pipeline = _get_pipeline(int(params.get("max_num_view", 8)), int(params.get("resolution", 768)))
     # The orchestrator has already reduced the mesh, so upstream's remesh is off.
     pipeline(mesh_path=job["mesh"], image_path=job["image"], output_mesh_path=obj_path,
              use_remesh=False, save_glb=False)

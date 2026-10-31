@@ -109,11 +109,11 @@ painters:
   hunyuan_paint:
     label: Hunyuan3D-Paint 2.1
     worker: hunyuan_paint
-    hint: Colors from the front image only; the back and sides are invented. Upstream says 21 GB VRAM.
+    hint: Colors from the front image only; the back and sides are invented. About 3 min.
     params:
-      faces: {type: int, default: 40000, min: 10000, max: 200000, step: 10000, label: Triangles, info: The painted model is a separate copy; the print mesh keeps its detail}
-      max_num_view: {type: choice, choices: [6, 8], default: 6, label: Views painted}
-      resolution: {type: choice, choices: [512, 768], default: 512, label: View resolution}
+      faces: {type: int, default: 150000, min: 10000, max: 200000, step: 10000, label: Triangles, info: The painted model is a separate copy; the print mesh keeps its detail}
+      max_num_view: {type: choice, choices: [6, 8], default: 8, label: Views painted}
+      resolution: {type: choice, choices: [512, 768], default: 768, label: View resolution, info: 6 views at 512 is softer but needs 21 GB of VRAM}
 
 print:
   heights_mm: [28, 32, 54, 75]

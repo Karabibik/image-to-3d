@@ -13,6 +13,7 @@ import logging
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+import fast_simplification
 import manifold3d
 import numpy as np
 import pymeshlab
@@ -344,7 +345,15 @@ def make_preview(src: str | Path, dst: str | Path, source_up: str = "y", max_fac
     """Write a reduced browser copy of a model's mesh, untouched by print prep."""
     mesh = load_geometry(src)
     orient(mesh, PrintSettings(source_up=source_up))
-    preview_copy(decimate(mesh, max_faces)).export(str(dst))
+    if len(mesh.faces) > max_faces:
+        # 14 s on UltraShape's 9.5M faces, where decimate() takes 190 s; a preview does not
+        # need its topology guarantees.
+        points, faces = fast_simplification.simplify(
+            np.asarray(mesh.vertices, dtype=np.float64), np.asarray(mesh.faces, dtype=np.int32),
+            target_count=max_faces,
+        )
+        mesh = trimesh.Trimesh(points, faces, process=False)
+    preview_copy(mesh).export(str(dst))
     return Path(dst)
 
 
