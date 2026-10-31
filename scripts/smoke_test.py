@@ -3,6 +3,7 @@
 Usage (inside the pod):
     /opt/venvs/ui/bin/python scripts/smoke_test.py /workspace/test.png [--only hunyuan ultrashape ...]
         [--views /workspace/views]   # front.png, left.png, back.png, right.png (any, front required)
+        [--paint]                    # also run the Color step on each pipeline
 
 Multi-view pipelines run only with --views.
 
@@ -41,6 +42,7 @@ def main() -> None:
     parser.add_argument("--only", nargs="*", help="limit to pipelines that use these model keys")
     parser.add_argument("--data-dir", type=Path, default=Path("/workspace"))
     parser.add_argument("--views", type=Path, help="folder with <slot>.png turnaround views")
+    parser.add_argument("--paint", action="store_true", help="also run the Color step")
     args = parser.parse_args()
     views = {p.stem: p for p in sorted(args.views.glob("*.png")) if p.stem in SLOTS} if args.views else {}
 
@@ -61,13 +63,15 @@ def main() -> None:
             try:
                 result = runner.run(Job(views["front"] if multiview else args.image, gen, ref, 1234,
                                         gen_params, ref_params, PrintSettings(target_faces=None),
-                                        "birefnet-general", views=views if multiview else None))
+                                        "birefnet-general", views=views if multiview else None,
+                                        painter="hunyuan_paint" if args.paint else None))
             except Exception as exc:
                 rows.append(f"| {label} | failed | | | | `{str(exc).splitlines()[0][:120]}` |")
                 continue
             infos = [result.record["generator"].get("info", {})]
-            if result.record.get("refiner"):
-                infos.append(result.record["refiner"].get("info", {}))
+            for stage in ("refiner", "paint"):
+                if result.record.get(stage):
+                    infos.append(result.record[stage].get("info", {}))
             vram = max((i.get("peak_vram_gb", 0) for i in infos), default=0)
             gpu = gpu or next((i["gpu"] for i in infos if "gpu" in i), "")
             report = result.report

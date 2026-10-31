@@ -1,15 +1,16 @@
-"""Model worker lifecycle and the generate -> refine -> print-prep job chain."""
+"""Model worker lifecycle and the steps of a run: image, shape, refine, color, print."""
 
 from __future__ import annotations
 
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import threading
 import time
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Callable
@@ -20,7 +21,7 @@ from PIL import Image
 
 from .imageprep import prepare_input
 from .multiview import align_views
-from .printprep import PrintReport, PrintSettings, prepare
+from .printprep import PrintReport, PrintSettings, make_preview, prepare
 
 REPO_DIR = Path(__file__).resolve().parents[1]
 CONFIG_PATH = Path(__file__).with_name("models.yaml")
@@ -131,6 +132,8 @@ class WorkerManager:
 
 @dataclass
 class Job:
+    """Everything one unattended run needs; see Runner.run."""
+
     image: Path
     generator: str
     refiner: str | None
@@ -141,7 +144,20 @@ class Job:
     rembg_model: str
     name: str = ""
     # Turnaround views for multi-view generators ({slot: image}, slots from app.multiview).
-    # `image` is then the front view, which refiners and the history use.
+    # `image` is then the front view, which refiners and the painter use.
+    views: dict[str, Path] | None = None
+    painter: str | None = None
+    paint_params: dict = field(default_factory=dict)
+
+
+@dataclass
+class Prepared:
+    """Cut-outs from the Image step, ready for any number of Shape runs."""
+
+    image: Path
+    name: str
+    source: str
+    background_removed: bool
     views: dict[str, Path] | None = None
 
 
@@ -152,101 +168,202 @@ class JobResult:
     record: dict
 
 
+Status = Callable[[str], None]
+
+
 def safe_name(text: str) -> str:
     return re.sub(r"[^A-Za-z0-9_-]+", "_", text).strip("_")[:60] or "model"
 
 
+def _new_dir(base: Path) -> Path:
+    folder, n = base, 1
+    while folder.exists():  # same image/model/seed twice within a second
+        n += 1
+        folder = base.with_name(f"{base.name}_{n}")
+    folder.mkdir(parents=True)
+    return folder
+
+
+def _no_status(_msg: str) -> None:
+    pass
+
+
 class Runner:
+    """One method per step. Each Shape run gets a folder whose run.json is rewritten after every step."""
+
     def __init__(self, config: dict, outputs_dir: Path, workers: WorkerManager):
         self.config = config
         self.outputs_dir = Path(outputs_dir)
         self.workers = workers
 
-    def _new_run_dir(self, job: Job) -> Path:
-        now = datetime.now()
-        stages = job.generator + (f"+{job.refiner}" if job.refiner else "")
-        base = self.outputs_dir / f"{now:%Y-%m-%d}" / f"{now:%H%M%S}_{job.name}_{stages}_s{job.seed}"
-        run_dir, n = base, 1
-        while run_dir.exists():  # same image/model/seed twice within a second
-            n += 1
-            run_dir = base.with_name(f"{base.name}_{n}")
-        run_dir.mkdir(parents=True)
-        return run_dir
+    def load(self, run_dir: str | Path) -> dict:
+        return json.loads((Path(run_dir) / "run.json").read_text(encoding="utf-8"))
 
-    def run(self, job: Job, status: Callable[[str], None] = lambda _msg: None) -> JobResult:
-        job.name = job.name or safe_name(Path(job.image).stem)
-        generator = self.config["generators"][job.generator]
-        refiner = self.config["refiners"][job.refiner] if job.refiner else None
-        multiview = generator.get("input") == "multiview"
-        if multiview and not (job.views and "front" in job.views):
-            raise ValueError(f"{generator['label']} needs turnaround views including the front")
-        if job.views and not multiview:
-            raise ValueError(f"{generator['label']} takes a single image, not turnaround views")
-        run_dir = self._new_run_dir(job)
+    def _save(self, run_dir: str | Path, record: dict) -> None:
+        (Path(run_dir) / "run.json").write_text(json.dumps(record, indent=2), encoding="utf-8")
 
-        status("Preparing image" + ("s" if job.views else ""))
-        image_path, removed = prepare_input(job.image, run_dir / "input.png", job.rembg_model)
-        record: dict = {
-            "name": job.name,
-            "created": datetime.now().isoformat(timespec="seconds"),
-            "source_image": str(job.image),
-            "background_removed": removed,
-            "generator": {"key": job.generator, "params": job.gen_params},
-            "refiner": {"key": job.refiner, "params": job.ref_params} if job.refiner else None,
-            "seed": job.seed,
-        }
-        request = {
-            "task": "generate", "model": job.generator, "image": str(image_path),
-            "out": str(run_dir / "raw.glb"), "seed": job.seed, "params": job.gen_params,
-        }
-        if job.views:
-            request["views"] = record["views"] = self._prepare_views(job, run_dir, image_path)
-
-        status(f"Generating with {generator['label']}")
-        result = self.workers.run(generator["worker"], request)
-        mesh_path, up = result["mesh"], generator.get("up", "y")
-        record["generator"]["info"] = result.get("info", {})
-
-        if refiner:
-            status(f"Refining with {refiner['label']}")
-            result = self.workers.run(refiner["worker"], {
-                "task": "refine", "model": job.refiner, "image": str(image_path), "mesh": mesh_path,
-                "out": str(run_dir / "refined.glb"), "seed": job.seed, "params": job.ref_params,
-            })
-            mesh_path, up = result["mesh"], refiner.get("up", up)
-            record["refiner"]["info"] = result.get("info", {})
-
-        status("Preparing for print")
-        settings = replace(job.print_settings, source_up=up)
-        report = prepare(mesh_path, run_dir / job.name, settings)
-        record.update(final_mesh=mesh_path, print_settings=asdict(settings), report=report.as_dict())
-        (run_dir / "run.json").write_text(json.dumps(record, indent=2), encoding="utf-8")
-        return JobResult(run_dir=run_dir, report=report, record=record)
+    def prepare_image(self, image: Path, rembg_model: str, views: dict[str, Path] | None = None, name: str = "",
+                      status: Status = _no_status) -> Prepared:
+        name = name or safe_name(Path(image).stem)
+        folder = _new_dir(self.outputs_dir / "prepared" / f"{datetime.now():%Y%m%d_%H%M%S}_{name}")
+        status("Preparing image" + ("s" if views else ""))
+        cutout, removed = prepare_input(image, folder / "input.png", rembg_model)
+        framed = self._prepare_views(views, rembg_model, folder, cutout) if views else None
+        return Prepared(cutout, name, str(image), removed, framed)
 
     @staticmethod
-    def _prepare_views(job: Job, run_dir: Path, front_cutout: Path) -> dict[str, str]:
+    def _prepare_views(views: dict[str, Path], rembg_model: str, folder: Path, front_cutout: Path) -> dict[str, Path]:
         """Cut out every view and frame them alike; returns {slot: path of view_<slot>.png}."""
         cutouts = {}
-        for slot, src in job.views.items():
-            if slot == "front":  # job.image is the front view, already cut out as input.png
+        for slot, src in views.items():
+            if slot == "front":  # the main image is the front view, already cut out
                 path = front_cutout
             else:
-                path, _ = prepare_input(src, run_dir / f"cutout_{slot}.png", job.rembg_model)
+                path, _ = prepare_input(src, folder / f"cutout_{slot}.png", rembg_model)
             cutouts[slot] = Image.open(path)
         paths = {}
         for slot, image in align_views(cutouts).items():
-            paths[slot] = str(run_dir / f"view_{slot}.png")
+            paths[slot] = folder / f"view_{slot}.png"
             image.save(paths[slot])
         return paths
 
-    def reprint(self, run_dir: Path, settings: PrintSettings) -> PrintReport:
-        """Repeat print prep on a finished run's mesh, e.g. at another height or face budget."""
-        record = json.loads((Path(run_dir) / "run.json").read_text(encoding="utf-8"))
-        settings = replace(settings, source_up=record.get("print_settings", {}).get("source_up", "y"))
+    def prepared_from(self, run_dir: str | Path) -> Prepared:
+        """The inputs of an earlier run, to generate from them again."""
+        record = self.load(run_dir)
+        views = {slot: Path(path) for slot, path in record["views"].items()} if record.get("views") else None
+        return Prepared(Path(run_dir) / "input.png", record["name"], record.get("source_image", ""),
+                        record.get("background_removed", False), views)
+
+    def generate(self, prepared: Prepared, generator: str, seed: int, params: dict,
+                 status: Status = _no_status) -> Path:
+        """Shape step. Always a new run, so another seed never replaces an earlier result."""
+        spec = self.config["generators"][generator]
+        multiview = spec.get("input") == "multiview"
+        if multiview and not (prepared.views and "front" in prepared.views):
+            raise ValueError(f"{spec['label']} needs turnaround views including the front")
+        if prepared.views and not multiview:
+            raise ValueError(f"{spec['label']} takes a single image, not turnaround views")
+
+        now = datetime.now()
+        run_dir = _new_dir(self.outputs_dir / f"{now:%Y-%m-%d}" / f"{now:%H%M%S}_{prepared.name}_{generator}_s{seed}")
+        image = shutil.copy(prepared.image, run_dir / "input.png")
+        record: dict = {
+            "name": prepared.name,
+            "created": now.isoformat(timespec="seconds"),
+            "source_image": prepared.source,
+            "background_removed": prepared.background_removed,
+            "generator": {"key": generator, "params": params},
+            "refiner": None,
+            "seed": seed,
+        }
+        request = {
+            "task": "generate", "model": generator, "image": str(image),
+            "out": str(run_dir / "raw.glb"), "seed": seed, "params": params,
+        }
+        if prepared.views:
+            request["views"] = record["views"] = {
+                slot: str(shutil.copy(path, run_dir / f"view_{slot}.png")) for slot, path in prepared.views.items()
+            }
+
+        status(f"Generating with {spec['label']}")
+        result = self.workers.run(spec["worker"], request)
+        record["generator"]["info"] = result.get("info", {})
+        record.update(raw_mesh=result["mesh"], final_mesh=result["mesh"], up=spec.get("up", "y"))
+        self._save(run_dir, record)
+        self._add_preview(run_dir, record, "Shape", result["mesh"], status)
+        return run_dir
+
+    def refine(self, run_dir: str | Path, refiner: str, params: dict, status: Status = _no_status) -> dict:
+        """Refine step. Always works from the Shape result, so it can be repeated with other settings."""
+        run_dir = Path(run_dir)
+        record = self.load(run_dir)
+        spec = self.config["refiners"][refiner]
+        self._clear_results(run_dir, record)
+        status(f"Refining with {spec['label']}")
+        result = self.workers.run(spec["worker"], {
+            "task": "refine", "model": refiner, "image": str(run_dir / "input.png"),
+            "mesh": record.get("raw_mesh", str(run_dir / "raw.glb")),
+            "out": str(run_dir / "refined.glb"), "seed": record["seed"], "params": params,
+        })
+        record["refiner"] = {"key": refiner, "params": params, "info": result.get("info", {})}
+        record.update(final_mesh=result["mesh"], up=spec.get("up", self._up(record)))
+        self._save(run_dir, record)
+        self._add_preview(run_dir, record, "Refined", result["mesh"], status)
+        return record
+
+    def paint(self, run_dir: str | Path, painter: str, params: dict, status: Status = _no_status) -> dict:
+        """Color step. Writes a separate, lighter textured GLB; the print mesh is not touched."""
+        run_dir = Path(run_dir)
+        record = self.load(run_dir)
+        spec = self.config["painters"][painter]
+        status("Reducing the mesh for painting")
+        mesh_path = run_dir / "paint_input.obj"
+        # Normalised like every other preview, so the viewer frames the painted model the same way.
+        make_preview(record["final_mesh"], mesh_path, self._up(record), int(params.get("faces", 40000)))
+        status(f"Painting with {spec['label']}")
+        result = self.workers.run(spec["worker"], {
+            "task": "paint", "model": painter, "image": str(run_dir / "input.png"), "mesh": str(mesh_path),
+            "out": str(run_dir / "textured.glb"), "seed": record["seed"], "params": params,
+        })
+        record["paint"] = {"key": painter, "params": params, "info": result.get("info", {}), "mesh": result["mesh"]}
+        record.setdefault("previews", {})["Color"] = result["mesh"]
+        self._save(run_dir, record)
+        return record
+
+    def print_ready(self, run_dir: str | Path, settings: PrintSettings, status: Status = _no_status) -> PrintReport:
+        """Print step. Repeat it at any time for another height or face budget."""
+        run_dir = Path(run_dir)
+        record = self.load(run_dir)
+        settings = replace(settings, source_up=self._up(record))
+        status("Preparing for print")
         faces = f"{settings.target_faces // 1000}k" if settings.target_faces else "full"
-        height = f"{settings.target_height_mm:g}mm" if settings.target_height_mm else "native"
-        stem = Path(run_dir) / f"{record['name']}_{height}_{faces}"
-        return prepare(record["final_mesh"], stem, settings)
+        # A dot would read as a file extension further down.
+        height = f"{settings.target_height_mm:g}mm".replace(".", "p") if settings.target_height_mm else "native"
+        report = prepare(record["final_mesh"], run_dir / f"{record['name']}_{height}_{faces}", settings)
+        record.update(print_settings=asdict(settings), report=report.as_dict())
+        self._save(run_dir, record)
+        return report
+
+    def run(self, job: Job, status: Status = _no_status) -> JobResult:
+        """Every step in order, unattended."""
+        prepared = self.prepare_image(job.image, job.rembg_model, job.views, job.name, status)
+        run_dir = self.generate(prepared, job.generator, job.seed, job.gen_params, status)
+        if job.refiner:
+            self.refine(run_dir, job.refiner, job.ref_params, status)
+        if job.painter:
+            self.paint(run_dir, job.painter, job.paint_params, status)
+        report = self.print_ready(run_dir, job.print_settings, status)
+        return JobResult(run_dir=run_dir, report=report, record=self.load(run_dir))
+
+    def _add_preview(self, run_dir: Path, record: dict, stage: str, mesh: str, status: Status) -> None:
+        status("Making a preview")
+        path = make_preview(mesh, run_dir / f"preview_{stage.lower()}.glb", self._up(record))
+        record.setdefault("previews", {})[stage] = str(path)
+        self._save(run_dir, record)
+
+    @staticmethod
+    def _up(record: dict) -> str:
+        # Runs from before the split into steps only have it in their print settings.
+        return record.get("up") or record.get("print_settings", {}).get("source_up", "y")
+
+    def _clear_results(self, run_dir: Path, record: dict) -> None:
+        """Drop what was built on the current mesh, so nothing stale stays next to the new one."""
+        record["up"] = self._up(record)
+        for pattern in ("textured*", "paint_input*", "*.stl", "*.3mf", "*_preview.glb"):
+            for path in run_dir.glob(pattern):
+                path.unlink()
+        for key in ("paint", "report", "print_settings"):
+            record.pop(key, None)
+        for stage in ("Refined", "Color"):
+            record.get("previews", {}).pop(stage, None)
+
+    @staticmethod
+    def previews(record: dict) -> dict[str, str]:
+        """Viewable meshes of a run by stage, in step order; old runs only have the print one."""
+        stages = dict(record.get("previews", {}))
+        if "report" in record:
+            stages["Print"] = record["report"]["files"]["preview"]
+        return stages
 
     def history(self, limit: int = 100) -> list[Path]:
         runs = sorted(

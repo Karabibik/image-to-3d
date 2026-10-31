@@ -48,6 +48,8 @@ class PrintSettings:
 
 # solidify() at 0.05 mm yields 1-2M faces for a 32 mm figure; "keep all" stops here instead.
 REMESH_FACE_CAP = 1_000_000
+# Step previews: refined meshes are too heavy for a browser.
+PREVIEW_FACES = 150_000
 # Measured: solid minis fill ~10% of their bounding box, double-walled shells 0.5-1.3%.
 HOLLOW_FILL_RATIO = 0.03
 
@@ -336,6 +338,14 @@ def preview_copy(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
     preview.apply_scale(1.0 / height)
     preview.apply_translation(-preview.bounds.mean(axis=0))
     return preview
+
+
+def make_preview(src: str | Path, dst: str | Path, source_up: str = "y", max_faces: int = PREVIEW_FACES) -> Path:
+    """Write a reduced browser copy of a model's mesh, untouched by print prep."""
+    mesh = load_geometry(src)
+    orient(mesh, PrintSettings(source_up=source_up))
+    preview_copy(decimate(mesh, max_faces)).export(str(dst))
+    return Path(dst)
 
 
 def prepare(src: str | Path, out_stem: str | Path, settings: PrintSettings | None = None) -> PrintReport:

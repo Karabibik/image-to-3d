@@ -1,0 +1,68 @@
+/* One screen: controls on the left, the model on the right, no page scrolling. */
+.gradio-container main {
+  padding: 8px 12px 0;
+}
+
+#workspace {
+  gap: 12px;
+}
+
+#controls {
+  max-width: 400px;
+}
+
+#controls button[role="tab"] {
+  padding: 6px 8px;
+  font-weight: 500;
+}
+
+#runs input {
+  padding-right: 24px;
+  text-overflow: ellipsis;
+}
+
+.hint,
+.hint p {
+  margin: 0;
+  color: var(--body-text-color);
+  font-size: 13px;
+  opacity: 0.8;
+}
+
+#dice {
+  align-self: end;
+  margin-bottom: 9px;
+}
+
+/* The viewer takes what the rest of the column leaves; an open Details panel scrolls here. */
+#result {
+  height: calc(100vh - 40px);
+  flex-wrap: nowrap;
+  overflow-y: auto;
+}
+
+#stage {
+  flex: none;
+  min-height: 0;
+}
+
+#viewer {
+  flex: 1 1 0;
+  min-height: 240px;
+}
+
+#status {
+  flex: none;
+  min-height: 22px;
+  font-variant-numeric: tabular-nums;
+}
+
+#status p {
+  margin: 0;
+}
+
+#downloads {
+  flex: none;
+  max-height: 120px;
+  overflow-y: auto;
+}

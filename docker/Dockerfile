@@ -2,10 +2,10 @@
 #
 # Image-to-miniature RunPod pod image.
 #
-#   /opt/venvs/<model>  one venv per model family (Hunyuan3D, UltraShape, Hi3D), layered
+#   /opt/venvs/<model>  one venv per model family (Hunyuan3D, Paint, UltraShape, Hi3D), layered
 #                       over one shared torch stack
 #   /opt/models/<repo>  upstream code, pinned to exact commits by scripts/build/*.sh
-#   /opt/app            this repo's UI (port 7860) and model workers (127.0.0.1:7871-7876)
+#   /opt/app            this repo's UI (port 7860) and model workers (127.0.0.1:7871-7877)
 #   /workspace          pod volume: HF weights cache, outputs, logs (nothing baked here)
 #
 # Model weights are not baked in; they download on first use or via PREFETCH_MODELS.
@@ -56,6 +56,10 @@ RUN bash /opt/build/install_hi3d.sh
 
 COPY scripts/build/install_hunyuan2mv.sh /opt/build/
 RUN bash /opt/build/install_hunyuan2mv.sh
+
+COPY envs/hunyuan_paint.txt /opt/build/envs/
+COPY scripts/build/install_hunyuan_paint.sh /opt/build/
+RUN bash /opt/build/install_hunyuan_paint.sh
 
 # UI / orchestrator venv: no torch, no system site-packages.
 COPY app/requirements.txt /opt/build/envs/ui.txt

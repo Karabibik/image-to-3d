@@ -1,16 +1,16 @@
 {
   "name": "image-to-miniature",
-  "image": "docker.io/karabibik/image-to-3d:v0.3.1",
+  "image": "docker.io/karabibik/image-to-3d:v0.4.0",
   "category": "NVIDIA",
   "disk": 60,
   "mounts": {
-    "persistent": { "size": 60, "path": "/workspace" }
+    "persistent": { "size": 80, "path": "/workspace" }
   },
   "ports": ["7860/http", "8888/http", "22/tcp"],
   "env": {
     "UI_USERNAME": "admin",
     "UI_PASSWORD": "{{ RUNPOD_SECRET_ui_password }}",
-    "PREFETCH_MODELS": "hunyuan hunyuan2mv ultrashape"
+    "PREFETCH_MODELS": "hunyuan hunyuan2mv ultrashape hunyuan_paint"
   },
   "allowedCudaVersions": ["12.6", "12.7", "12.8", "12.9", "13.0", "13.1", "13.2", "13.3", "13.4"],
   "startJupyter": true,

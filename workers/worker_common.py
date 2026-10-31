@@ -4,8 +4,8 @@ Standard library only, so it runs unchanged inside each model's own venv.
 
 Protocol:
     GET  /health -> {"ok": true, "loaded": [...]}
-    POST /run    -> body {"task": "generate"|"refine", "model": str, "image": path,
-                          "mesh": path (refine only), "out": path, "seed": int, "params": {...}}
+    POST /run    -> body {"task": "generate"|"refine"|"paint", "model": str, "image": path,
+                          "mesh": path (refine, paint), "out": path, "seed": int, "params": {...}}
                     reply {"ok": true, "mesh": path, "info": {...}}
                        or {"ok": false, "error": str, "traceback": str}
 """

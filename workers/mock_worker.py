@@ -1,7 +1,8 @@
 """Stand-in worker for developing the UI without a GPU (MOCK_WORKERS=1).
 
 Speaks the real worker protocol. `generate` writes MOCK_MESH if set (any mesh file),
-otherwise a simple figure on a hex base; `refine` copies its input mesh.
+otherwise a simple figure on a hex base; `refine` copies its input mesh; `paint` wraps
+a colour gradient around its input mesh.
 """
 
 import os
@@ -10,6 +11,7 @@ import time
 
 import numpy as np
 import trimesh
+from PIL import Image
 
 from worker_common import log, serve
 
@@ -47,5 +49,21 @@ def refine(job: dict) -> dict:
     return {"mesh": job["out"], "info": {"mock": True}}
 
 
+def paint(job: dict) -> dict:
+    log(f"mock {job['model']}: painting {job['mesh']}")
+    time.sleep(float(os.environ.get("MOCK_DELAY", "0.7")))
+    mesh = trimesh.load(job["mesh"], force="mesh", process=False)
+    height = (mesh.vertices[:, 1] - mesh.bounds[0, 1]) / (mesh.extents[1] or 1.0)
+    ramp = np.linspace([200, 60, 40], [40, 90, 210], 256).astype(np.uint8)[None]
+    mesh.visual = trimesh.visual.TextureVisuals(
+        uv=np.column_stack([height, np.full_like(height, 0.5)]),
+        material=trimesh.visual.material.PBRMaterial(
+            baseColorTexture=Image.fromarray(ramp).resize((256, 8)), metallicFactor=0.0, roughnessFactor=0.8,
+        ),
+    )
+    mesh.export(job["out"])
+    return {"mesh": job["out"], "info": {"mock": True}}
+
+
 if __name__ == "__main__":
-    serve({"generate": generate, "refine": refine}, loaded=lambda: ["mock"])
+    serve({"generate": generate, "refine": refine, "paint": paint}, loaded=lambda: ["mock"])

@@ -1,0 +1,13 @@
+# Hunyuan3D-Paint 2.1: what the texture path adds to hunyuan.txt. Upstream requirements.txt
+# pins where it has them, minus Blender (bpy), open3d, cupy and deepspeed, which it never reaches.
+# basicsr and realesrgan go in separately with --no-deps, see install_hunyuan_paint.sh.
+xatlas==0.0.9
+pygltflib==1.16.3
+pybind11==2.13.4
+cython==3.0.11
+# basicsr's own requirements, minus tb-nightly (training only) and opencv-python (the headless
+# build from hunyuan.txt does the same job).
+addict==2.4.0
+future==1.0.0
+lmdb==1.5.1
+yapf==0.43.0

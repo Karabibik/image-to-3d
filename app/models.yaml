@@ -2,8 +2,8 @@
 #
 # workers: one process per model, started on demand inside its own venv. Only one runs
 #          at a time so each gets the whole GPU. Paths are inside the Docker image.
-# generators / refiners: what the UI offers. `params` become UI controls and are passed
-#          to the worker unchanged. `advanced: true` puts a control in a collapsed panel.
+# generators / refiners / painters: what the UI offers. `params` become controls under
+#          Advanced and are passed to the worker unchanged. `hint` is the one line above them.
 # input: "multiview" for generators that take turnaround views instead of one image.
 # up: up axis of the mesh the model writes (all write glTF, which is Y-up).
 
@@ -50,52 +50,70 @@ workers:
          allow: ["model_index.json", "scheduler/*", "vae/*", "transformer_512/*", "transformer_1024/*"]}
       - {repo: facebook/dinov2-large, cache_dir: "${HI3D_CACHE_DIR}", <<: *safetensors_only}
       - {repo: openai/clip-vit-large-patch14, cache_dir: "${HI3D_CACHE_DIR}", <<: *safetensors_only}
+  hunyuan_paint:
+    # Same upstream repo as hunyuan, its own venv so the shape venv stays as tested.
+    python: /opt/venvs/hunyuan_paint/bin/python
+    script: workers/hunyuan_paint_worker.py
+    root: /opt/models/Hunyuan3D-2.1
+    port: 7877
+    prefetch:
+      - {repo: tencent/Hunyuan3D-2.1, allow: ["hunyuan3d-paintpbr-v2-1/*"]}
+      - {repo: facebook/dinov2-giant, <<: *safetensors_only}
 
 generators:
   hunyuan:
     label: Hunyuan3D 2.1
     worker: hunyuan
     up: y
-    notes: Solid all-rounder, the model your old template used. 11.5 GB VRAM measured on an A40.
+    hint: Hunyuan3D 2.1 · about 1 min · 11.5 GB VRAM
     params:
       steps: {type: int, default: 30, min: 5, max: 100, step: 1, label: Inference steps}
       guidance_scale: {type: float, default: 5.0, min: 1.0, max: 15.0, step: 0.5, label: Guidance scale}
       octree_resolution: {type: int, default: 384, min: 256, max: 512, step: 32, label: Mesh grid resolution, info: Higher keeps finer detail; 512 needs more VRAM}
-      num_chunks: {type: int, default: 200000, min: 20000, max: 1000000, step: 20000, label: Decode chunk size, advanced: true}
+      num_chunks: {type: int, default: 200000, min: 20000, max: 1000000, step: 20000, label: Decode chunk size}
   # Turnaround-sheet generators (input: multiview) get {slot: image} views; the front is required.
   hunyuan2mv:
     label: Hunyuan3D-2mv
     worker: hunyuan2mv
     input: multiview
     up: y
-    notes: The best choice for turnaround art. Shape from front / side / back views; any subset that includes the front works. Pairs very well with UltraShape. 9.5 GB VRAM (Turbo 6 GB) on an A40; ~5 GB download per variant.
+    hint: Hunyuan3D-2mv · about 2 min · 9.5 GB VRAM (Turbo 6 GB)
     params:
-      variant: {type: choice, choices: [standard, turbo, fast], default: standard, label: Model variant, info: "Turbo: step-distilled, use 5-10 steps; Fast: guidance-distilled"}
+      variant: {type: choice, choices: [standard, turbo, fast], default: standard, label: Model variant, info: "Turbo: step-distilled, use 5-10 steps; Fast: guidance-distilled. Each downloads ~5 GB on first use"}
       steps: {type: int, default: 50, min: 5, max: 100, step: 1, label: Inference steps}
       guidance_scale: {type: float, default: 5.0, min: 1.0, max: 15.0, step: 0.5, label: Guidance scale}
       octree_resolution: {type: int, default: 384, min: 256, max: 512, step: 32, label: Mesh grid resolution}
-      num_chunks: {type: int, default: 200000, min: 20000, max: 1000000, step: 20000, label: Decode chunk size, advanced: true}
+      num_chunks: {type: int, default: 200000, min: 20000, max: 1000000, step: 20000, label: Decode chunk size}
 refiners:
   ultrashape:
-    label: UltraShape 1.0
+    label: UltraShape
     worker: ultrashape
     up: y
-    notes: Adds fine geometric detail. Trained on Hunyuan3D 2.1 coarse meshes, so it pairs best with that generator. Occupies 18.4 GB of VRAM; ~10 min at 50 steps on an A40.
+    hint: The sharpest detail · about 10 min · 18.4 GB VRAM
     params:
       steps: {type: int, default: 50, min: 12, max: 100, step: 1, label: Steps, info: 12 is much faster with a small quality cost}
       octree_res: {type: int, default: 1024, min: 512, max: 2048, step: 128, label: Mesh grid resolution}
-      num_latents: {type: int, default: 32768, min: 8192, max: 65536, step: 4096, label: Latent tokens, advanced: true}
-      chunk_size: {type: int, default: 8000, min: 2048, max: 32000, step: 1024, label: Decode chunk size, advanced: true}
-      low_vram: {type: bool, default: false, label: Low-VRAM mode, advanced: true}
+      num_latents: {type: int, default: 32768, min: 8192, max: 65536, step: 4096, label: Latent tokens}
+      chunk_size: {type: int, default: 8000, min: 2048, max: 32000, step: 1024, label: Decode chunk size}
+      low_vram: {type: bool, default: false, label: Low-VRAM mode}
   hi3d:
-    label: Hi3D v1.0 (experimental)
+    label: Hi3D (experimental)
     worker: hi3d
     up: y
-    notes: Geometry refiner up to 1536. 20 GB VRAM at 1024 on an A40; CPU offload halves that to 11 GB for about 1.5× the time, so use it on smaller cards. 1536 was only validated on a 96 GB GPU. Print prep rebuilds its open surface as a solid.
+    hint: About 7 min · 20 GB VRAM · CPU offload 11 GB, 1.5× slower
     params:
-      resolution: {type: choice, choices: ["512", "1024", "1536"], default: "1024", label: Resolution}
+      resolution: {type: choice, choices: ["512", "1024", "1536"], default: "1024", label: Resolution, info: 1536 was only validated on a 96 GB GPU}
       steps: {type: int, default: 25, min: 10, max: 50, step: 1, label: Steps per pass}
-      cpu_offload: {type: bool, default: false, label: Sequential CPU offload, info: Slower, lowers VRAM}
+      cpu_offload: {type: bool, default: false, label: Sequential CPU offload, info: "Slower, lowers VRAM"}
+painters:
+  hunyuan_paint:
+    label: Hunyuan3D-Paint 2.1
+    worker: hunyuan_paint
+    hint: Colors from the front image only; the back and sides are invented. Upstream says 21 GB VRAM.
+    params:
+      faces: {type: int, default: 40000, min: 10000, max: 200000, step: 10000, label: Triangles, info: The painted model is a separate copy; the print mesh keeps its detail}
+      max_num_view: {type: choice, choices: [6, 8], default: 6, label: Views painted}
+      resolution: {type: choice, choices: [512, 768], default: 512, label: View resolution}
 
 print:
   heights_mm: [28, 32, 54, 75]

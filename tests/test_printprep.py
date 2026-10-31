@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 import trimesh
 
-from app.printprep import PrintSettings, load_geometry, nonmanifold_edge_count, prepare, solidify
+from app.printprep import PrintSettings, load_geometry, make_preview, nonmanifold_edge_count, prepare, solidify
 
 
 def _figure_y_up() -> trimesh.Trimesh:
@@ -32,6 +32,18 @@ def test_orients_scales_and_places(figure_glb, tmp_path):
     # Standing up: Z must be the longest extent.
     assert mesh.extents[2] == max(mesh.extents)
     assert report.watertight
+
+
+def test_step_preview_is_reduced_and_stands_up_like_the_print_preview(figure_glb, tmp_path):
+    report = prepare(figure_glb, tmp_path / "out", PrintSettings(target_height_mm=32.0, target_faces=None))
+    print_preview = trimesh.load(report.files["preview"], force="mesh")
+
+    make_preview(figure_glb, tmp_path / "step.glb", max_faces=500)
+    step_preview = trimesh.load(tmp_path / "step.glb", force="mesh")
+
+    assert len(step_preview.faces) <= 520 < len(print_preview.faces)
+    assert step_preview.extents[1] == pytest.approx(1.0, rel=1e-3)  # Y-up, unit height
+    assert step_preview.extents == pytest.approx(print_preview.extents, rel=0.05)
 
 
 def test_removes_floaters_and_closes_holes(tmp_path):
