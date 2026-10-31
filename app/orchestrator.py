@@ -278,13 +278,13 @@ class Runner:
         run_dir = Path(run_dir)
         record = self.load(run_dir)
         spec = self.config["refiners"][refiner]
-        self._clear_results(run_dir, record)
         status(f"Refining with {spec['label']}")
         result = self.workers.run(spec["worker"], {
             "task": "refine", "model": refiner, "image": str(run_dir / "input.png"),
             "mesh": record.get("raw_mesh", str(run_dir / "raw.glb")),
             "out": str(run_dir / "refined.glb"), "seed": record["seed"], "params": params,
         })
+        self._clear_results(run_dir, record)  # only now: a failed refine keeps what the run had
         record["refiner"] = {"key": refiner, "params": params, "info": result.get("info", {})}
         record.update(final_mesh=result["mesh"], up=spec.get("up", self._up(record)))
         self._save(run_dir, record)

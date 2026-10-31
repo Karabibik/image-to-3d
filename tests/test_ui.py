@@ -19,15 +19,17 @@ def test_steps_share_one_gpu_queue():
     assert {fn.concurrency_limit for fn in steps} == {1}
 
 
-@pytest.mark.parametrize("refiner, color, current, expected", [
-    (ui.NO_REFINER, False, 1, ["Image", "Shape", "Print"]),
-    ("ultrashape", True, 1, ["Image", "Shape", "Refine", "Color", "Print"]),
-    ("ultrashape", False, 3, ["Refine", "Print"]),
-    (ui.NO_REFINER, True, 4, ["Color", "Print"]),
-    (ui.NO_REFINER, False, 5, ["Print"]),
+@pytest.mark.parametrize("refiner, color, current, prepared, expected", [
+    (ui.NO_REFINER, False, 1, None, ["Image", "Shape", "Print"]),
+    (ui.NO_REFINER, False, 1, "cut-out", ["Shape", "Print"]),
+    ("ultrashape", True, 1, None, ["Image", "Shape", "Refine", "Color", "Print"]),
+    ("ultrashape", False, 3, "cut-out", ["Refine", "Print"]),
+    (ui.NO_REFINER, True, 4, "cut-out", ["Color", "Print"]),
+    (ui.NO_REFINER, False, 5, "cut-out", ["Print"]),
 ])
-def test_run_all_goes_from_the_current_step_and_skips_optional_steps(refiner, color, current, expected):
-    chosen = ui._steps_from({"refiner": refiner, "include_color": color, "current": current})
+def test_run_all_goes_from_the_current_step_and_skips_what_is_off_or_done(refiner, color, current, prepared, expected):
+    chosen = ui._steps_from({"refiner": refiner, "include_color": color, "current": current,
+                             "session": {"prepared": prepared}})
     assert [step.title for step in chosen] == expected
 
 

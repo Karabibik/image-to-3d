@@ -213,10 +213,12 @@ STEPS = [
 
 
 def _steps_from(v: dict) -> list[Step]:
-    """What Run all does: the current step and later, without the optional steps left off."""
+    """What Run all does: the current step and later, without the steps that are left off or done."""
     skipped = {3} if v["refiner"] == NO_REFINER else set()
     if not v["include_color"]:
         skipped.add(4)
+    if v["session"]["prepared"]:
+        skipped.add(1)
     return [step for step in STEPS[v["current"] - 1:] if step.tab not in skipped]
 
 
@@ -439,15 +441,12 @@ def build() -> gr.Blocks:
             on_click(button, step.title.lower(), lambda _v, step=step: [step])
         on_click(run_all, "run_all", _steps_from)
 
-        def forget_run(selected: str, state: dict) -> dict:
+        def forget_run(selected: str) -> dict:
             return {**show({"prepared": None, "run": None}, 1, ""), **show_mode(selected)}
 
-        for source in (image, sheet, *view_slots):
-            for event in (source.upload, source.clear):
-                event(forget_run, [mode, session], shown, show_progress="hidden").then(
-                    lambda path: path, preview, viewer, show_progress="hidden")
-        mode.input(forget_run, [mode, session], shown, show_progress="hidden").then(
-            lambda path: path, preview, viewer, show_progress="hidden")
+        for event in (mode.input, *(e for s in (image, sheet, *view_slots) for e in (s.upload, s.clear))):
+            event(forget_run, mode, shown, show_progress="hidden").then(
+                lambda path: path, preview, viewer, show_progress="hidden")
 
         def open_run(run_dir: str) -> dict:
             prepared = RUNNER.prepared_from(run_dir)

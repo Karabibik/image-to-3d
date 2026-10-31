@@ -63,6 +63,22 @@
 
 #downloads {
   flex: none;
-  max-height: 120px;
+  max-height: 170px;
   overflow-y: auto;
+}
+
+/* These are the run's own files, so nothing here is removable. */
+#downloads .label-clear-button {
+  display: none;
+}
+
+#downloads tr,
+#downloads td {
+  height: auto;
+  padding-block: 2px !important;
+}
+
+#downloads tr > td > * {
+  padding-block: 0;
+  min-height: 0;
 }

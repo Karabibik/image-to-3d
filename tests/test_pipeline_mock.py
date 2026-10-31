@@ -8,7 +8,7 @@ import pytest
 import trimesh
 from PIL import Image, ImageDraw
 
-from app.orchestrator import Job, Runner, WorkerManager, load_config
+from app.orchestrator import Job, Runner, WorkerError, WorkerManager, load_config
 from app.printprep import PrintSettings
 
 
@@ -107,6 +107,21 @@ def test_refining_again_clears_what_was_built_on_the_old_mesh(runner, cutout):
     assert not Path(report.files["stl"]).exists() and not (run_dir / "textured.glb").exists()
     assert list(runner.previews(record)) == ["Shape", "Refined"]
     assert (run_dir / "raw.glb").exists()
+
+
+def test_a_failed_refine_keeps_what_the_run_had(runner, cutout, monkeypatch):
+    run_dir = runner.generate(runner.prepare_image(cutout, "u2net"), "hunyuan", 8, {})
+    report = runner.print_ready(run_dir, PrintSettings(target_faces=2000))
+
+    def fail(*_args):
+        raise WorkerError("out of memory")
+
+    monkeypatch.setattr(runner.workers, "run", fail)
+    with pytest.raises(WorkerError):
+        runner.refine(run_dir, "ultrashape", {})
+
+    assert Path(report.files["stl"]).exists()
+    assert Path(runner.previews(runner.load(run_dir))["Print"]).exists()
 
 
 def test_runs_from_before_the_steps_still_open(runner, cutout):
