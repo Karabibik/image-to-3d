@@ -11,15 +11,15 @@ Everything runs on a rented RunPod GPU behind one web UI.
 | **Hunyuan3D-2mv** | generator from turnaround views (front/left/back/right), the best results | 9.5 GB, Turbo 6.1 GB | Tencent Hunyuan 3D 2.0 Community (excludes EU, UK, South Korea) |
 | **UltraShape 1.0** | refiner, the sharpest detail | 15.0 GB | Apache-2.0 |
 | **Hi3D v1.0** *(experimental)* | refiner, up to 1536 | 20.4 GB at 1024, 10.9 GB with CPU offload (1536 only tested upstream on 96 GB) | Hi3D Open License |
-| **Hunyuan3D-Paint 2.1** | color: textured GLB with PBR maps | Upstream says 21 GB; not measured here yet | Tencent Hunyuan Community (excludes EU, UK, South Korea) |
+| **Hunyuan3D-Paint 2.1** | color: textured GLB with PBR maps | 32.5 GB at 8 views / 768, 13.4 GB at 6 views / 512 | Tencent Hunyuan Community (excludes EU, UK, South Korea) |
 
-These peaks are what PyTorch allocated; the card has to hold more (UltraShape occupied 18.4 GB of an A40).
+These peaks are what PyTorch allocated; the card has to hold more. On an A40, UltraShape occupied up to 24.7 GB, and Paint 43.8 GB at 8 views / 768 or 20.8 GB at 6 views / 512.
 
 TRELLIS.2 and Pixal3D were removed in v0.3.0 after side-by-side tests on painted-mini renders; tag `v0.2.1` still has them.
 
 Timings on an A40 for one model, excluding print prep: Hunyuan3D 44 s (about 100 s on first use), Hunyuan3D-2mv about 2 minutes, UltraShape about 10 minutes at 50 steps
-(use 12 steps for a quick pass), Hi3D at 1024 about 7 minutes, or 11 with CPU offload.
-Whole runs from the image to the STL, with default settings: Hunyuan3D alone about 4 minutes, with Hi3D about 12, with UltraShape about 17, Hunyuan3D-2mv with UltraShape about 18.
+(use 12 steps for a quick pass), Hi3D at 1024 about 7 minutes, or 11 with CPU offload, Paint about 3 minutes.
+Whole runs from the image to the STL, with default settings: Hunyuan3D alone about 4 minutes, with Hi3D about 12, with UltraShape about 17, Hunyuan3D-2mv with UltraShape about 18. Color adds about 4.
 
 Meshes that are still open or non-manifold after repair are rebuilt by print prep as a solid at 0.05 mm
 (on by default, about 1-2 minutes of CPU time). Hi3D needs this because its surfaces are open.
@@ -67,8 +67,8 @@ browser ─► RunPod proxy :7860 ─► Gradio UI + orchestrator (/opt/venvs/ui
 
 1. Deploy a pod from the template on an **A40 48 GB** (cheap, runs everything except Hi3D at 1536).
    An RTX A6000 or L40S is faster. Use an A100/H100 80 GB for Hi3D at 1536.
-   Cards with 20-24 GB should fit if you turn on Hi3D's CPU offload, but none has been tested.
-   Pick a pod with at least 32 GB of RAM: the UI held about 20 GB after a few runs, mostly background removal, and print prep adds up to 9 GB.
+   Cards under 48 GB are untested. UltraShape needs 25 GB, and Color then needs 6 views at 512 under **Advanced**.
+   Pick a pod with at least 48 GB of RAM: the UI and a model worker together peaked at 39 GB, mostly background removal, UltraShape meshes and print prep.
    **Avoid Blackwell** (RTX 5090, RTX PRO 6000, B200): this image has no kernels for them.
 2. Open `https://<pod-id>-7860.proxy.runpod.net` and log in.
 3. Work through the steps. The 3D viewer stays beside them, and a row above it switches between what each step made.
@@ -108,7 +108,8 @@ including renders from above, and gave accurate figures on painted-mini renders.
 
 The Color step paints the current mesh with **Hunyuan3D-Paint 2.1** and writes a textured GLB. STL and 3MF stay geometry-only.
 - **Only the front image guides the color.** The model takes one reference image, so the back and sides are invented, even on turnaround runs.
-- **The painted model is a separate, lighter copy:** 40k triangles by default, with about 2K texture maps. The print mesh keeps its full detail.
+- **The painted model is a separate, lighter copy:** 150k triangles by default, with about 2K texture maps. The print mesh keeps its full detail.
+- **8 views at 768 is the default and needs a 48 GB card.** On smaller cards, choose 6 views at 512 under **Advanced**: it is softer, but needs 21 GB.
 - The first use downloads about 11 GB unless `hunyuan_paint` is in `PREFETCH_MODELS`.
 
 ## Print settings
@@ -152,7 +153,7 @@ To add a model, give it a worker under `workers/`, an install script, and entrie
 
 - **UI not reachable:** read `/workspace/logs/ui.log`. The UI restarts itself if it crashes.
 - **A model fails:** read `/workspace/logs/<worker>.log` (also visible under **Details** in the UI).
-- **Out of GPU memory:** lower the resolution, enable UltraShape's low-VRAM mode or Hi3D's CPU offload, or pick a bigger GPU.
+- **Out of GPU memory:** lower the resolution, enable UltraShape's low-VRAM mode or Hi3D's CPU offload, use 6 views at 512 for Color, or pick a bigger GPU.
 - **"may be a hollow shell" warning:** do not print that STL as-is; try another seed or generator and report it.
 - **A model comes out facing backwards or lying down:** use the extra rotations under Print → Advanced.
 - **Long jobs:** RunPod's proxy closes connections that are silent for about 100 s. The UI sends progress every ~1.5 s, and every result is saved to disk, so after a disconnect use **Open a previous run**.

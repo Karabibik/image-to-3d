@@ -89,7 +89,7 @@ refiners:
     label: UltraShape
     worker: ultrashape
     up: y
-    hint: The sharpest detail · about 10 min · 18.4 GB VRAM
+    hint: The sharpest detail · about 10 min · up to 25 GB VRAM
     params:
       steps: {type: int, default: 50, min: 12, max: 100, step: 1, label: Steps, info: 12 is much faster with a small quality cost}
       octree_res: {type: int, default: 1024, min: 512, max: 2048, step: 128, label: Mesh grid resolution}
@@ -109,11 +109,11 @@ painters:
   hunyuan_paint:
     label: Hunyuan3D-Paint 2.1
     worker: hunyuan_paint
-    hint: Colors from the front image only; the back and sides are invented. About 3 min.
+    hint: Colors from the front image only; the back and sides are invented. About 3 min · 44 GB VRAM.
     params:
       faces: {type: int, default: 150000, min: 10000, max: 200000, step: 10000, label: Triangles, info: The painted model is a separate copy; the print mesh keeps its detail}
       max_num_view: {type: choice, choices: [6, 8], default: 8, label: Views painted}
-      resolution: {type: choice, choices: [512, 768], default: 768, label: View resolution, info: 6 views at 512 is softer but needs 21 GB of VRAM}
+      resolution: {type: choice, choices: [512, 768], default: 768, label: View resolution, info: For smaller cards, 6 views at 512 is softer but needs 21 GB of VRAM}
 
 print:
   heights_mm: [28, 32, 54, 75]

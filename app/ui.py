@@ -28,7 +28,7 @@ CSS_PATH = Path(__file__).with_name("ui.css")
 NO_REFINER = "none"
 ROTATIONS = [0, 90, 180, 270]
 # Every preview is one unit tall, so one camera distance frames them all, with room for a wide base.
-VIEWER_STYLE = {"display_mode": "solid", "clear_color": (0.15, 0.15, 0.17, 1.0), "camera_position": (None, 85, 1.5)}
+VIEWER_STYLE = {"display_mode": "solid", "clear_color": (0.15, 0.15, 0.17, 1.0), "camera_position": (None, 85, 1.8)}
 UPLOAD_STYLE = {"show_label": False, "type": "filepath", "image_mode": "RGBA", "format": "png", "sources": ["upload"]}
 THEME = gr.themes.Soft(
     primary_hue="indigo",
