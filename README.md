@@ -124,6 +124,39 @@ The Color step paints the current mesh with **Hunyuan3D-Paint 2.1** and writes a
 | Extra rotation | 0° | Use it if a model comes out lying down or facing backwards. |
 | Solid rebuild | on | For meshes that stay open after repair; smooths detail finer than the voxel size. |
 
+## Worlds and terrain tiles
+
+A second image, `karabibik/image-to-3d-world`, turns one picture or a description into a 3D world and cuts printable terrain out of it. It has its own template (`runpod/template.world.json`) because it needs a bigger GPU, a 200 GB volume and CUDA 12.8.
+
+**Not GPU-tested yet:** so far it has only run on stand-in workers, so the VRAM and time figures below are missing.
+
+| Step | What it does |
+|---|---|
+| **1 Panorama** | Makes a 360° panorama from an image or text, or takes your own 2:1 panorama. |
+| **2 World** | Splits the panorama into layers (near objects, objects behind them, background, sky) and builds a mesh for each. |
+| **3 Tile** | Click a spot on the top-down map, set the size, and get a watertight STL/3MF with a flat base. |
+
+| Model | Role | License |
+|---|---|---|
+| **HY-Pano 2.0** on Qwen-Image-Edit | image to panorama; keeps its 54 GB of weights on the GPU, so it needs an 80 GB card | Tencent HY-World 2.0 Community (excludes EU, UK, South Korea); Qwen is Apache-2.0 |
+| **HunyuanWorld 1.0** | text or image to panorama, and the layered meshes | Tencent HunyuanWorld-1.0 Community (excludes EU, UK, South Korea) |
+| **FLUX.1-dev**, **FLUX.1-Fill-dev** | what HunyuanWorld paints with; the World step always needs Fill | FLUX Non-Commercial, gated |
+| **ZIM** | object masks in the World step | CC BY-NC 4.0 |
+
+FLUX and ZIM are non-commercial, so check their terms before selling tiles or prints made with this route.
+
+**Before the first session:**
+1. On Hugging Face, accept the [FLUX.1-dev](https://huggingface.co/black-forest-labs/FLUX.1-dev) and [FLUX.1-Fill-dev](https://huggingface.co/black-forest-labs/FLUX.1-Fill-dev) licenses.
+2. Create a read token with that same account and add it as the RunPod secret `hf_token`.
+3. Create a template from `runpod/template.world.json`.
+
+**On a pod:** keep it outside the EU and UK, because of the licenses above. Weights come to about 125 GB and download in the background when the pod starts (`/workspace/logs/prefetch.log`), so a first session spends a while on that.
+
+**Reading the results:**
+- A world's depth has no real-world scale, so tile positions and sizes are in *camera heights*: the distance from the camera to the ground below it. A tile only gets millimetres from its width setting.
+- HunyuanWorld builds everything from one viewpoint. Ground near the camera is the most reliable; far or hidden ground is stretched or invented, and a tile warns you when much of it had no real ground under it.
+- `Height exaggeration` under Advanced stretches the relief without touching the base.
+
 ## Checking a new image build on a pod
 
 Over SSH or a Jupyter terminal:

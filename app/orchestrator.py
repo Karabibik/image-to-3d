@@ -24,7 +24,8 @@ from .multiview import align_views
 from .printprep import PrintReport, PrintSettings, make_preview, prepare
 
 REPO_DIR = Path(__file__).resolve().parents[1]
-CONFIG_PATH = Path(__file__).with_name("models.yaml")
+# The world image sets MODEL_CONFIG=models.world.yaml.
+CONFIG_PATH = Path(__file__).with_name(os.environ.get("MODEL_CONFIG", "models.yaml"))
 
 
 def load_config(path: Path = CONFIG_PATH) -> dict:

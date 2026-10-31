@@ -6,8 +6,6 @@ import atexit
 import json
 import os
 import random
-import threading
-import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -20,71 +18,17 @@ from .imageprep import prepare_input
 from .multiview import SLOT_LABELS, SLOTS, split_sheet
 from .orchestrator import Prepared, Runner, Status, WorkerManager, load_config, safe_name
 from .printprep import PrintSettings
+from .ui_common import (
+    LOG_DIR, OUTPUT_DIR, UPLOAD_STYLE, VIEWER_STYLE, launch, model_panels, model_params, watch,
+)
 
-DATA_DIR = Path(os.environ.get("DATA_DIR", "/workspace" if Path("/workspace").is_dir() else Path.cwd()))
-OUTPUT_DIR = Path(os.environ.get("OUTPUT_DIR", DATA_DIR / "outputs"))
-LOG_DIR = Path(os.environ.get("LOG_DIR", DATA_DIR / "logs"))
-CSS_PATH = Path(__file__).with_name("ui.css")
 NO_REFINER = "none"
 ROTATIONS = [0, 90, 180, 270]
-# Every preview is one unit tall, so one camera distance frames them all, with room for a wide base.
-VIEWER_STYLE = {"display_mode": "solid", "clear_color": (0.15, 0.15, 0.17, 1.0), "camera_position": (None, 85, 1.8)}
-# image_mode None passes the upload through untouched: converting it here fails on JPEGs, and
-# app.imageprep handles every format anyway.
-UPLOAD_STYLE = {"show_label": False, "type": "filepath", "image_mode": None, "format": "png", "sources": ["upload"]}
-THEME = gr.themes.Soft(
-    primary_hue="indigo",
-    neutral_hue="slate",
-    font=(gr.themes.GoogleFont("Inter", weights=(400, 500, 600)), "system-ui", "Segoe UI", "sans-serif"),
-    font_mono=("ui-monospace", "Consolas", "monospace"),
-    spacing_size=gr.themes.sizes.spacing_sm,
-    radius_size=gr.themes.sizes.radius_sm,
-).set(
-    block_title_background_fill="none",
-    block_title_padding="0",
-    block_title_text_color="*body_text_color_subdued",
-    block_title_text_color_dark="*body_text_color_subdued",
-    block_title_text_weight="500",
-)
 
 CONFIG = load_config()
 WORKERS = WorkerManager(CONFIG["workers"], LOG_DIR, mock=os.environ.get("MOCK_WORKERS") == "1")
 RUNNER = Runner(CONFIG, OUTPUT_DIR, WORKERS)
 atexit.register(WORKERS.stop)
-
-
-# ---------------------------------------------------------------- controls
-
-def _control(spec: dict) -> gr.components.Component:
-    common = {"label": spec.get("label"), "info": spec.get("info")}
-    kind = spec["type"]
-    if kind in ("int", "float"):
-        step = spec.get("step", 1 if kind == "int" else 0.1)
-        return gr.Slider(spec["min"], spec["max"], value=spec["default"], step=step, **common)
-    if kind == "bool":
-        return gr.Checkbox(value=spec["default"], **common)
-    if kind == "choice":
-        return gr.Radio(spec["choices"], value=spec["default"], **common)
-    raise ValueError(f"unknown param type {kind!r}")
-
-
-def _model_panels(models: dict, selected: str, prefix: str, inputs: dict) -> dict:
-    """One hint plus an Advanced panel per model; only the selected model's panel is visible."""
-    panels = {}
-    for key, spec in models.items():
-        missing = "" if WORKERS.available(spec["worker"]) else " **Not installed in this image.**"
-        with gr.Column(visible=key == selected) as panel:
-            gr.Markdown(f"{spec.get('hint', '')}{missing}", elem_classes="hint")
-            with gr.Accordion("Advanced", open=False):
-                for name, param in spec["params"].items():
-                    inputs[f"{prefix}.{key}.{name}"] = _control(param)
-        panels[key] = panel
-    return panels
-
-
-def _params(values: dict, prefix: str, key: str) -> dict:
-    start = f"{prefix}.{key}."
-    return {name[len(start):]: value for name, value in values.items() if name.startswith(start)}
 
 
 def _print_settings(v: dict) -> PrintSettings:
@@ -164,7 +108,7 @@ def _step_shape(v: dict, session: dict, say: Status) -> str:
     prepared = session["prepared"]
     generator = _generator_for("multiview" if prepared.views else "single")
     seed = int(v["seed"])
-    session["run"] = str(RUNNER.generate(prepared, generator, seed, _params(v, "gen", generator), say))
+    session["run"] = str(RUNNER.generate(prepared, generator, seed, model_params(v, "gen", generator), say))
     return f"{_faces(RUNNER.load(session['run'])['generator'])}seed {seed}"
 
 
@@ -178,14 +122,14 @@ def _step_refine(v: dict, session: dict, say: Status) -> str:
     run_dir = _need_run(session)
     if v["refiner"] == NO_REFINER:
         raise ValueError("Pick a refiner, or go on to the next step.")
-    record = RUNNER.refine(run_dir, v["refiner"], _params(v, "ref", v["refiner"]), say)
+    record = RUNNER.refine(run_dir, v["refiner"], model_params(v, "ref", v["refiner"]), say)
     return f"{_faces(record['refiner'])}{record['refiner']['key']}"
 
 
 def _step_color(v: dict, session: dict, say: Status) -> str:
     run_dir = _need_run(session)
     painter = next(iter(CONFIG["painters"]))
-    params = _params(v, "paint", painter)
+    params = model_params(v, "paint", painter)
     RUNNER.paint(run_dir, painter, params, say)
     return f"{int(params['faces']):,} faces · textured.glb"
 
@@ -312,7 +256,7 @@ def build() -> gr.Blocks:
                             seed = gr.Number(value=1234, precision=0, label="Seed", scale=2, min_width=100)
                             dice = gr.Button("Random seed", scale=1, min_width=100, elem_id="dice")
                         shape_button = gr.Button("Generate", variant="primary")
-                        gen_panels = _model_panels(generators, default_gen, "gen", inputs)
+                        gen_panels = model_panels(generators, default_gen, "gen", inputs, WORKERS)
 
                     with gr.Tab("3 Refine", id=3) as tab_refine:
                         refiner = gr.Radio(
@@ -320,12 +264,12 @@ def build() -> gr.Blocks:
                             value=NO_REFINER, show_label=False, container=False,
                         )
                         refine_button = gr.Button("Refine", variant="primary")
-                        ref_panels = _model_panels(refiners, NO_REFINER, "ref", inputs)
+                        ref_panels = model_panels(refiners, NO_REFINER, "ref", inputs, WORKERS)
 
                     with gr.Tab("4 Color", id=4) as tab_color:
                         include_color = gr.Checkbox(value=False, label="Include in Run all steps")
                         color_button = gr.Button("Paint", variant="primary")
-                        _model_panels(painters, next(iter(painters)), "paint", inputs)
+                        model_panels(painters, next(iter(painters)), "paint", inputs, WORKERS)
 
                     with gr.Tab("5 Print", id=5) as tab_print:
                         with gr.Row():
@@ -395,33 +339,12 @@ def build() -> gr.Blocks:
                 **{panel: gr.Column(visible=key == shape_model) for key, panel in gen_panels.items()},
             }
 
-        def watch(title: str, work: Callable[[Status], str]):
-            """Run `work` on a thread, yielding its progress; returns its summary line and duration."""
-            progress = {"status": "Starting", "result": None, "error": None}
-
-            def target() -> None:
-                try:
-                    progress["result"] = work(lambda msg: progress.__setitem__("status", msg))
-                except Exception as exc:  # shown in the status line
-                    progress["error"] = exc
-
-            thread = threading.Thread(target=target, daemon=True)
-            started = time.time()
-            thread.start()
-            while thread.is_alive():
-                # Regular yields also keep the RunPod proxy connection alive on long jobs.
-                yield {status: f"**{title}** · {progress['status']} · {time.time() - started:.0f}s",
-                       log: WORKERS.tail(WORKERS.current)}
-                thread.join(timeout=1.5)
-            if progress["error"] is not None:
-                raise progress["error"]
-            return progress["result"], time.time() - started
-
         def run_steps(steps: list[Step], v: dict):
             state = dict(v["session"])
             for step in steps:
                 try:
-                    summary, seconds = yield from watch(step.title, lambda say: step.work(v, state, say))
+                    summary, seconds = yield from watch(step.title, lambda say: step.work(v, state, say),
+                                                      status, log, WORKERS)
                 except Exception as exc:
                     first_line = str(exc).splitlines()[0] if str(exc) else type(exc).__name__
                     yield {status: f"✕ **{step.title}:** {first_line}", log: WORKERS.tail(WORKERS.current)}
@@ -471,20 +394,7 @@ def build() -> gr.Blocks:
 
 
 def main() -> None:
-    password = os.environ.get("UI_PASSWORD")
-    auth = (os.environ.get("UI_USERNAME", "admin"), password) if password else None
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    build().queue(default_concurrency_limit=1).launch(
-        server_name=os.environ.get("UI_HOST", "0.0.0.0"),
-        server_port=int(os.environ.get("UI_PORT", "7860")),
-        auth=auth,
-        allowed_paths=[str(OUTPUT_DIR)],
-        theme=THEME,
-        css_paths=CSS_PATH,
-        footer_links=[],
-        # Failures before a step's code runs cannot reach the status line; without this they are silent.
-        show_error=True,
-    )
+    launch(build())
 
 
 if __name__ == "__main__":

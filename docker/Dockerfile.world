@@ -1,0 +1,70 @@
+# syntax=docker/dockerfile:1.7
+#
+# Image-to-world RunPod pod image: this repo's UI code with the world models, on a CUDA 12.8
+# stack so it also runs on Blackwell cards.
+#
+#   /opt/venvs/<name>   hypano (HY-Pano 2.0), hyworld1 (HunyuanWorld 1.0), ui, layered over
+#                       one shared torch stack
+#   /opt/models/<repo>  upstream code, pinned to exact commits by scripts/build/*.sh
+#   /opt/app            this repo's UI (port 7860) and model workers (127.0.0.1:7881-7882)
+#   /workspace          pod volume: HF weights cache, outputs, logs (nothing baked here)
+#
+# Model weights are not baked in; they download on first use or via PREFETCH_MODELS.
+# Build: docker build --platform linux/amd64 -f docker/Dockerfile.world -t <user>/image-to-3d-world:<tag> .
+
+# CUDA 12.8.1 on Ubuntu 22.04 with RunPod's /start.sh (SSH, Jupyter, nginx), python3.10-3.13.
+FROM runpod/base:1.5.0-cuda1281-ubuntu2204
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+ENV PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    HF_HOME=/workspace/.cache/huggingface \
+    HF_HUB_ENABLE_HF_TRANSFER=1 \
+    U2NET_HOME=/workspace/.cache/rembg \
+    DATA_DIR=/workspace
+
+# Fail fast if the base image stops providing what the rest of the build assumes.
+RUN python3.10 --version && python3.11 --version && test -x /start.sh && grep -q post_start /start.sh
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libglib2.0-0 libgl1 libopengl0 libglu1-mesa libegl1 libgles2 libgomp1 libx11-6 libxrender1 libxi6 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY scripts/build/lib.sh scripts/build/install_torch_cu128.sh /opt/build/
+RUN bash /opt/build/install_torch_cu128.sh
+
+# One layer per model family, so changing one pin only rebuilds that layer onwards.
+COPY envs/hypano.txt /opt/build/envs/
+COPY scripts/build/install_hypano.sh /opt/build/
+RUN bash /opt/build/install_hypano.sh
+
+COPY envs/hyworld1.txt /opt/build/envs/
+COPY scripts/build/install_hyworld1.sh /opt/build/
+RUN bash /opt/build/install_hyworld1.sh
+
+# UI / orchestrator venv: no torch, no system site-packages.
+COPY app/requirements.txt /opt/build/envs/ui.txt
+RUN python3.11 -m venv /opt/venvs/ui \
+    && /opt/venvs/ui/bin/python -m pip install --upgrade pip \
+    && /opt/venvs/ui/bin/python -m pip install -r /opt/build/envs/ui.txt
+
+# Declared here so changing them does not invalidate the heavy layers above.
+ENV HYWORLD_HOME=/workspace/.cache/hyworld \
+    TORCH_HOME=/workspace/.cache/torch \
+    MODEL_CONFIG=models.world.yaml \
+    UI_MODULE=app.world_ui
+
+COPY app /opt/app/app
+COPY workers /opt/app/workers
+COPY tests /opt/app/tests
+COPY docker/run_ui.sh /opt/app/run_ui.sh
+COPY docker/post_start.sh /post_start.sh
+RUN chmod +x /opt/app/run_ui.sh /post_start.sh \
+    && cd /opt/app && MODEL_CONFIG=models.yaml /opt/venvs/ui/bin/python -m pytest -q tests
+
+WORKDIR /opt/app
+EXPOSE 7860
+# CMD is inherited: the base /start.sh brings up SSH/Jupyter, then runs /post_start.sh,
+# which starts the UI under a restart loop.

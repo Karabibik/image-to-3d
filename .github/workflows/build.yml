@@ -2,14 +2,15 @@ name: build-image
 
 # Tests the UI/print-prep code, then builds the pod image and pushes it to Docker Hub.
 # Needs repository secrets DOCKERHUB_USERNAME and DOCKERHUB_TOKEN (a Docker Hub access token).
-#   push to main  -> :main and :sha-<short>
-#   tag v1.2.3    -> :v1.2.3 and :latest   (use version tags in the RunPod template)
+#   push to main      -> image-to-3d:main and :sha-<short>
+#   tag v1.2.3        -> image-to-3d:v1.2.3 and :latest   (use version tags in the RunPod template)
+#   tag world-v1.2.3  -> image-to-3d-world:v1.2.3 and :latest
 # A failing test or build step posts its log tail as a public annotation.
 
 on:
   push:
     branches: [main]
-    tags: ["v*"]
+    tags: ["v*", "world-v*"]
     paths-ignore: ["**.md", "runpod/**"]
   workflow_dispatch:
 
@@ -69,12 +70,23 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - id: target
+        name: Pick the image this ref builds
+        run: |
+          if [[ "$GITHUB_REF_NAME" == world-v* ]]; then
+            echo "image=image-to-3d-world" >> "$GITHUB_OUTPUT"
+            echo "dockerfile=docker/Dockerfile.world" >> "$GITHUB_OUTPUT"
+          else
+            echo "image=image-to-3d" >> "$GITHUB_OUTPUT"
+            echo "dockerfile=docker/Dockerfile" >> "$GITHUB_OUTPUT"
+          fi
       - id: meta
         uses: docker/metadata-action@v5
         with:
-          images: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/image-to-3d
+          images: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/${{ steps.target.outputs.image }}
           tags: |
             type=semver,pattern=v{{version}}
+            type=match,pattern=world-(v.*),group=1
             type=ref,event=branch
             type=sha,prefix=sha-
           flavor: latest=auto
@@ -82,13 +94,14 @@ jobs:
         env:
           TAGS: ${{ steps.meta.outputs.tags }}
           LABELS: ${{ steps.meta.outputs.labels }}
-          CACHE: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/image-to-3d:buildcache
+          CACHE: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/${{ steps.target.outputs.image }}:buildcache
+          DOCKERFILE: ${{ steps.target.outputs.dockerfile }}
         run: |
           args=()
           while read -r tag; do [ -n "$tag" ] && args+=(--tag "$tag"); done <<< "$TAGS"
           while read -r label; do [ -n "$label" ] && args+=(--label "$label"); done <<< "$LABELS"
           set +e
-          docker buildx build . -f docker/Dockerfile --platform linux/amd64 --push --progress=plain \
+          docker buildx build . -f "$DOCKERFILE" --platform linux/amd64 --push --progress=plain \
             --cache-from "type=registry,ref=$CACHE" --cache-to "type=registry,ref=$CACHE,mode=max" \
             "${args[@]}" 2>&1 | tee build.log
           status=${PIPESTATUS[0]}

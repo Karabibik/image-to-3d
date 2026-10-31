@@ -45,6 +45,8 @@ class PrintSettings:
     # Face budget after decimation; None or 0 keeps every face (capped after a remesh).
     target_faces: int | None = 200_000
     formats: tuple[str, ...] = ("stl", "3mf")
+    # Fit the preview by its longest side rather than its height, for wide flat models.
+    preview_whole: bool = False
 
 
 # solidify() at 0.05 mm yields 1-2M faces for a 32 mm figure; "keep all" stops here instead.
@@ -331,12 +333,15 @@ def decimate(mesh: trimesh.Trimesh, target_faces: int) -> trimesh.Trimesh:
     return out
 
 
-def preview_copy(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
-    """Y-up copy normalised to unit height, which browser viewers frame correctly."""
+def preview_copy(mesh: trimesh.Trimesh, whole: bool = False) -> trimesh.Trimesh:
+    """Y-up copy normalised to unit height, which browser viewers frame correctly.
+
+    `whole` normalises the longest side instead, for models much wider than they are tall.
+    """
     preview = mesh.copy()
     preview.apply_transform(_rotation("x", -90))
-    height = float(preview.extents[1]) or 1.0
-    preview.apply_scale(1.0 / height)
+    size = float(preview.extents.max() if whole else preview.extents[1]) or 1.0
+    preview.apply_scale(1.0 / size)
     preview.apply_translation(-preview.bounds.mean(axis=0))
     return preview
 
@@ -412,6 +417,6 @@ def prepare(src: str | Path, out_stem: str | Path, settings: PrintSettings | Non
         mesh.export(str(path))
         report.files[fmt] = str(path)
     preview_path = out_stem.with_name(out_stem.name + "_preview.glb")
-    preview_copy(mesh).export(str(preview_path))
+    preview_copy(mesh, settings.preview_whole).export(str(preview_path))
     report.files["preview"] = str(preview_path)
     return report

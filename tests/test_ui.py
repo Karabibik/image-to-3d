@@ -5,7 +5,7 @@ import pytest
 from gradio.components.image import ImageData
 from PIL import Image, ImageDraw
 
-from app import ui
+from app import ui, ui_common
 from app.orchestrator import Runner
 from app.ui import build
 
@@ -81,7 +81,7 @@ def test_every_upload_box_takes_common_image_formats(tmp_path, name, mode):
 def test_failures_before_a_step_starts_are_shown(monkeypatch, tmp_path):
     options = {}
     monkeypatch.setattr(gr.Blocks, "launch", lambda _self, **kwargs: options.update(kwargs))
-    monkeypatch.setattr(ui, "OUTPUT_DIR", tmp_path / "outputs")
+    monkeypatch.setattr(ui_common, "OUTPUT_DIR", tmp_path / "outputs")
     ui.main()
     assert options["show_error"] is True
 

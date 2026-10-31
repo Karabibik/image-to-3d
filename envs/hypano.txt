@@ -1,0 +1,14 @@
+# HY-Pano 2.0, Qwen-Image-Edit backend. Pins from upstream's hyworld2/panogen/requirements.txt
+# and root requirements.txt (peft, which load_lora_weights needs); torch comes from the shared
+# stack. The two unpinned upstream entries are fixed here to versions that fit those pins.
+einops==0.8.1
+numpy==2.2.0
+pillow==11.3.0
+diffusers==0.36.0
+safetensors==0.7.0
+tokenizers==0.22.0
+transformers[accelerate,tiktoken]==4.57.1
+accelerate==1.12.0
+huggingface_hub==0.36.0
+peft==0.18.1
+loguru==0.7.3

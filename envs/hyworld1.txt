@@ -1,0 +1,35 @@
+# HunyuanWorld 1.0. Upstream's docker/HunyuanWorld.yaml pins, cut down to what hy3dworld, MoGe
+# and ZIM import: pytorch3d, natten, xformers, flash-attn and the rest of the list are never
+# reached. Draco is left out too, it only writes the optional .drc files for upstream's viewer.
+# basicsr-fixed, realesrgan, MoGe, utils3d and ZIM go in with --no-deps, see install_hyworld1.sh.
+accelerate==1.6.0
+diffusers==0.34.0
+huggingface-hub==0.30.2
+matplotlib==3.10.1
+numpy==1.24.1
+open3d==0.19.0
+opencv-python-headless==4.11.0.86
+peft==0.15.0
+pillow==11.1.0
+protobuf==5.29.3
+safetensors==0.5.3
+scikit-image==0.24.0
+scipy==1.15.2
+sentencepiece==0.2.0
+tokenizers==0.21.1
+tqdm==4.67.1
+transformers==4.51.0
+trimesh==4.6.8
+# ZIM runs on the CPU either way: LayerDecomposition calls .to(), and only Zim.cuda() moves its
+# ONNX sessions to the GPU. So the plain build, without the GPU one's CUDA library needs.
+onnx==1.17.0
+onnxruntime==1.21.1
+easydict==1.9
+# basicsr's own requirements, minus tb-nightly (training only).
+addict==2.4.0
+future==1.0.0
+lmdb==1.6.2
+yapf==0.43.0
+# utils3d's own requirements.
+moderngl==5.12.0
+plyfile==1.1

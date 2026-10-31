@@ -1,0 +1,79 @@
+# Model catalogue of the world image (MODEL_CONFIG=models.world.yaml). Same conventions as
+# models.yaml; a world goes panorama -> layered meshes -> terrain tiles.
+#
+# panoramas: what the Panorama step offers. input is "image" or "text"; task is the worker task.
+# scene: the world builder; its FLUX inpainting needs FLUX.1-Fill-dev on every route.
+# Weights come to about 125 GB. The ignore lists skip the 22 GB single-file checkpoints at the
+# top of the FLUX repos, which diffusers never loads.
+_flux_ignore: &flux_ignore ["flux1-*.safetensors", "ae.safetensors"]
+
+workers:
+  hypano:
+    python: /opt/venvs/hypano/bin/python
+    script: workers/pano_worker.py
+    root: /opt/models/HY-World-2.0
+    port: 7881
+    prefetch:
+      - {repo: Qwen/Qwen-Image-Edit-2509}
+      # The rest of HY-Pano-2.0 is the 157 GB HunyuanImage-3 backend, which this image does not use.
+      - {repo: tencent/HY-World-2.0, allow: ["HY-Pano-2.0/pytorch_lora_weights.safetensors"]}
+  hyworld1:
+    python: /opt/venvs/hyworld1/bin/python
+    script: workers/hyworld1_worker.py
+    root: /opt/models/HunyuanWorld-1.0
+    port: 7882
+    prefetch:
+      # Gated: HF_TOKEN must belong to an account that accepted both licenses.
+      - {repo: black-forest-labs/FLUX.1-Fill-dev, ignore: *flux_ignore}
+      - {repo: black-forest-labs/FLUX.1-dev, ignore: *flux_ignore}
+      - {repo: tencent/HunyuanWorld-1, ignore: ["assets/*"]}
+      - {repo: Ruicheng/moge-vitl}
+      - {repo: IDEA-Research/grounding-dino-tiny, ignore: ["pytorch_model.bin"]}
+      # The worker runs in $HYWORLD_HOME and upstream reads ./ZIM/zim_vit_l_2092.
+      - {repo: naver-iv/zim-anything-vitl, allow: ["zim_vit_l_2092/*"], local_dir: "${HYWORLD_HOME}/ZIM"}
+
+panoramas:
+  hypano:
+    label: HY-Pano 2.0
+    worker: hypano
+    task: pano_image
+    input: image
+    hint: Newest model. Keeps all 54 GB of its weights on the GPU, so it needs an 80 GB card.
+    params:
+      steps: {type: int, default: 40, min: 20, max: 60, step: 1, label: Inference steps}
+  hyworld1_image:
+    label: HunyuanWorld
+    worker: hyworld1
+    task: pano_image
+    input: image
+    hint: Your image fills 80 degrees of the panorama and FLUX paints the rest. Fits smaller cards.
+    params:
+      cache: {type: bool, default: false, label: Faster inference (DeepCache)}
+  hyworld1_text:
+    label: HunyuanWorld
+    worker: hyworld1
+    task: pano_text
+    input: text
+    hint: FLUX paints the whole panorama from your description.
+    params:
+      cache: {type: bool, default: false, label: Faster inference (DeepCache)}
+
+scene:
+  worker: hyworld1
+  hint: Depth for each layer, plus up to three rounds of FLUX inpainting.
+  params:
+    cache: {type: bool, default: false, label: Faster inference (DeepCache)}
+
+tile:
+  defaults:
+    size: 4.0
+    width_mm: 50
+    base_mm: 3
+    grid: 400
+    exaggeration: 1.0
+    smoothing: 0.7
+
+print:
+  faces: {"40k": 40000, "200k": 200000, "500k": 500000, "Keep all": 0}
+  defaults:
+    target_faces: 200000

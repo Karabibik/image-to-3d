@@ -8,6 +8,11 @@ Protocol:
                           "mesh": path (refine, paint), "out": path, "seed": int, "params": {...}}
                     reply {"ok": true, "mesh": path, "info": {...}}
                        or {"ok": false, "error": str, "traceback": str}
+
+World tasks use the same envelope:
+    "pano_image", "pano_text"  also take "prompt"; `out` is panorama.png; reply {"image": path}
+    "scene"                    also takes "labels_fg1", "labels_fg2", "classes"; `out` is a folder;
+                               reply {"layers": [{"type": "fg1"|"fg2"|"bg"|"sky", "file": name, "faces": int}]}
 """
 
 from __future__ import annotations

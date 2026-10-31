@@ -14,7 +14,7 @@ fi
 
 while true; do
     echo "[$(date '+%F %T')] starting UI"
-    /opt/venvs/ui/bin/python -m app.ui
+    /opt/venvs/ui/bin/python -m "${UI_MODULE:-app.ui}"
     echo "[$(date '+%F %T')] UI exited with status $?; restarting in 5 s"
     sleep 5
 done
